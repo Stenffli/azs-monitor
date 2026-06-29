@@ -37,6 +37,10 @@
         .btn-primary:hover { background: #005fcc; }
         .btn-success { background: #22c55e; color: white; }
         .btn-success:hover { background: #16a34a; }
+        .btn-danger { background: #ef4444; color: white; }
+        .btn-danger:hover { background: #dc2626; }
+        .btn-warning { background: #f59e0b; color: white; }
+        .btn-warning:hover { background: #d97706; }
         .btn-outline { background: transparent; border: 1px solid #d1d5db; color: #374151; }
         .btn-outline:hover { background: #f3f4f6; }
 
@@ -85,6 +89,7 @@
         .station-card .price { font-weight: 600; color: #059669; }
         .station-card .price.dt { color: #7c3aed; }
         .station-card .price.premium { color: #8b5cf6; }
+        .station-card .price.na { color: #ef4444; font-style: italic; font-weight: 400; }
         
         .queue-badge {
             display: inline-flex;
@@ -126,6 +131,32 @@
             font-weight: 600;
             margin-top: 4px;
         }
+
+        .tanker-btn-group {
+            display: flex;
+            gap: 4px;
+            margin-top: 4px;
+            flex-wrap: wrap;
+        }
+        .tanker-btn {
+            padding: 2px 10px;
+            border: none;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: 0.2s;
+            font-weight: 500;
+        }
+        .tanker-btn.start {
+            background: #f59e0b;
+            color: white;
+        }
+        .tanker-btn.start:hover { background: #d97706; }
+        .tanker-btn.stop {
+            background: #ef4444;
+            color: white;
+        }
+        .tanker-btn.stop:hover { background: #dc2626; }
 
         /* ===== МОДАЛЬНОЕ ОКНО ===== */
         .modal-overlay {
@@ -409,10 +440,66 @@
         return fuel ? fuel.price : null;
     }
 
-    function formatFuelPrice(price) {
-        return price !== null && price !== undefined ? price + ' ₽' : 'нет';
+    function getFuelAvailability(station, type) {
+        const fuelArray = station.fuel_stock && station.fuel_stock.length > 0 ? station.fuel_stock[0] : [];
+        const fuel = fuelArray.find(f => f.fuel_type === type);
+        return fuel ? fuel.available : 1;
     }
 
+    function formatFuelPrice(price, availability) {
+        if (availability === 0) return '<span class="price na">🚫 Нет в наличии</span>';
+        if (price !== null && price !== undefined) return price + ' ₽';
+        return '<span class="price na">🚫 Нет в наличии</span>';
+    }
+
+    // ============================================================
+    // УПРАВЛЕНИЕ БЕНЗОВОЗОМ (ДВЕ ОТДЕЛЬНЫЕ ФУНКЦИИ)
+    // ============================================================
+    async function startTanker(stationId) {
+        try {
+            const response = await fetch('/api/report', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    station_id: stationId,
+                    user_name: 'Админ',
+                    report_type: 'tanker',
+                    tanker_active: 1,
+                    description: 'Бензовоз начал сливаться'
+                })
+            });
+            const result = await response.json();
+            showToast('✅ ' + result.message, 'success');
+            setTimeout(() => loadStations(), 500);
+        } catch (error) {
+            showToast('❌ Ошибка: ' + error.message, 'error');
+        }
+    }
+
+    async function stopTanker(stationId) {
+        try {
+            const response = await fetch('/api/report', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    station_id: stationId,
+                    user_name: 'Админ',
+                    report_type: 'tanker',
+                    tanker_active: 0,
+                    description: 'Бензовоз закончил сливаться'
+                })
+            });
+            const result = await response.json();
+            showToast('✅ ' + result.message, 'success');
+            setTimeout(() => loadStations(), 500);
+        } catch (error) {
+            showToast('❌ Ошибка: ' + error.message, 'error');
+        }
+    }
+
+    // ============================================================
+    // ОТРИСОВКА СПИСКА
+    // ============================================================
     function renderStations() {
         if (!map) return;
         map.geoObjects.removeAll();
@@ -434,6 +521,12 @@
             const fuelDtp = getFuelPrice(s, 'ДТ*');
             const fuel100 = getFuelPrice(s, 'АИ-100');
             
+            const avail95 = getFuelAvailability(s, 'АИ-95');
+            const availDt = getFuelAvailability(s, 'ДТ');
+            const avail95p = getFuelAvailability(s, '95*');
+            const availDtp = getFuelAvailability(s, 'ДТ*');
+            const avail100 = getFuelAvailability(s, 'АИ-100');
+            
             const tanker = s.tanker_active || false;
             const queueValue = s.queue_length || 0;
             const queueColor = getQueueColor(queueValue);
@@ -443,16 +536,20 @@
                     <div class="name">${s.name}</div>
                     <div class="address">${s.address}</div>
                     <div class="info">
-                        <span class="price">⛽ 95: ${formatFuelPrice(fuel95)}</span>
-                        <span class="price dt">🛢️ ДТ: ${formatFuelPrice(fuelDt)}</span>
-                        ${fuel95p ? `<span class="price premium">⭐ 95*: ${fuel95p} ₽</span>` : ''}
-                        ${fuelDtp ? `<span class="price premium">⭐ ДТ*: ${fuelDtp} ₽</span>` : ''}
-                        ${fuel100 ? `<span class="price">💯 100: ${fuel100} ₽</span>` : ''}
+                        <span class="price">⛽ 95: ${formatFuelPrice(fuel95, avail95)}</span>
+                        <span class="price dt">🛢️ ДТ: ${formatFuelPrice(fuelDt, availDt)}</span>
+                        ${fuel95p ? `<span class="price premium">⭐ 95*: ${formatFuelPrice(fuel95p, avail95p)}</span>` : ''}
+                        ${fuelDtp ? `<span class="price premium">⭐ ДТ*: ${formatFuelPrice(fuelDtp, availDtp)}</span>` : ''}
+                        ${fuel100 ? `<span class="price">💯 100: ${formatFuelPrice(fuel100, avail100)}</span>` : ''}
                         <span class="queue-badge ${queueColor}">${queueValue}</span>
                         <span class="network">${s.network}</span>
                     </div>
                     ${tanker ? '<div class="tanker-badge">🚛 Бензовоз сливается</div>' : ''}
-                    <button class="report-btn" onclick="event.stopPropagation(); openReportModal(${s.id}, '${s.name}')">📝 Сообщить</button>
+                    <div class="tanker-btn-group">
+                        <button class="tanker-btn start" onclick="event.stopPropagation(); startTanker(${s.id})">🚛 Бензовоз сливается</button>
+                        <button class="tanker-btn stop" onclick="event.stopPropagation(); stopTanker(${s.id})">✅ Бензовоз слился</button>
+                        <button class="report-btn" onclick="event.stopPropagation(); openReportModal(${s.id}, '${s.name}')">📝 Сообщить</button>
+                    </div>
                 </div>
             `;
         });
@@ -466,6 +563,7 @@
             else if (queueValue > 3) markerColor = '#f59e0b';
 
             const fuel95 = getFuelPrice(s, 'АИ-95');
+            const avail95 = getFuelAvailability(s, 'АИ-95');
 
             const placemark = new ymaps.Placemark(
                 [s.latitude, s.longitude],
@@ -473,11 +571,14 @@
                     balloonContent: `
                         <b>${s.name}</b><br>
                         📍 ${s.address}<br>
-                        ⛽ 95: ${formatFuelPrice(fuel95)}<br>
+                        ⛽ 95: ${formatFuelPrice(fuel95, avail95)}<br>
                         🚗 Загруженность: ${queueValue}/10<br>
                         ${s.tanker_active ? '🚛 <b>Бензовоз сливается!</b><br>' : ''}
                         <br>
-                        <button onclick="openReportModal(${s.id}, '${s.name}')" style="padding:6px 12px;background:#0077ff;color:white;border:none;border-radius:4px;cursor:pointer;">📝 Сообщить</button>
+                        <button onclick="startTanker(${s.id})" style="padding:6px 12px;background:#f59e0b;color:white;border:none;border-radius:4px;cursor:pointer;margin:2px;">🚛 Бензовоз сливается</button>
+                        <button onclick="stopTanker(${s.id})" style="padding:6px 12px;background:#22c55e;color:white;border:none;border-radius:4px;cursor:pointer;margin:2px;">✅ Бензовоз слился</button>
+                        <br>
+                        <button onclick="openReportModal(${s.id}, '${s.name}')" style="padding:6px 12px;background:#0077ff;color:white;border:none;border-radius:4px;cursor:pointer;margin-top:4px;">📝 Сообщить</button>
                     `,
                     iconContent: queueValue.toString(),
                     iconColor: markerColor
@@ -566,7 +667,7 @@
     }
 
     // ============================================================
-    // ОТПРАВКА ОТЧЁТА + АВТООБНОВЛЕНИЕ БЕЗ ПЕРЕЗАГРУЗКИ
+    // ОТПРАВКА ОТЧЁТА
     // ============================================================
     document.getElementById('reportForm').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -597,9 +698,8 @@
             closeReportModal();
             showToast('✅ ' + result.message, 'success');
             
-            // ===== АВТООБНОВЛЕНИЕ БЕЗ ПЕРЕЗАГРУЗКИ СТРАНИЦЫ =====
             setTimeout(() => {
-                loadStations(); // просто перезагружаем данные
+                loadStations();
             }, 500);
             
         } catch (error) {
