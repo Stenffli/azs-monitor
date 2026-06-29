@@ -14,114 +14,90 @@ app.use(express.static(path.join(__dirname, '../public')));
 const DB_PATH = path.join(__dirname, '../gas_stations.db');
 let db;
 
-// ============================================================
-// ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ (С ПРОВЕРКОЙ ТАБЛИЦ)
-// ============================================================
 function initDB() {
     const exists = fs.existsSync(DB_PATH);
     db = new sqlite3.Database(DB_PATH, (err) => {
-        if (err) {
-            console.error('❌ Ошибка подключения к БД:', err.message);
-            return;
-        }
-        console.log('✅ База данных подключена');
-        
-        // ПРОВЕРЯЕМ, ЕСТЬ ЛИ ТАБЛИЦЫ
-        db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='stations'", (err, row) => {
-            if (err) {
-                console.error('❌ Ошибка проверки таблиц:', err.message);
-                return;
-            }
-            
-            if (!row) {
-                // ТАБЛИЦ НЕТ — СОЗДАЁМ
-                console.log('⚠️ Таблицы не найдены, создаём...');
-                createTables();
-            } else {
-                console.log('✅ Таблицы уже существуют');
+        if (err) console.error('❌ Ошибка подключения к БД:', err.message);
+        else console.log('✅ База данных подключена');
+    });
+
+    if (!exists) {
+        db.exec(`
+            CREATE TABLE stations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT,
+                address TEXT,
+                latitude REAL,
+                longitude REAL,
+                network TEXT,
+                queue_length INTEGER DEFAULT 0,
+                tanker_active INTEGER DEFAULT 0,
+                last_update TEXT
+            );
+            CREATE TABLE fuel_stock (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                station_id INTEGER,
+                fuel_type TEXT,
+                price REAL,
+                available INTEGER DEFAULT 1,
+                FOREIGN KEY(station_id) REFERENCES stations(id)
+            );
+            CREATE TABLE reports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                station_id INTEGER,
+                user_name TEXT,
+                report_type TEXT,
+                fuel_type TEXT,
+                price REAL,
+                queue_length INTEGER,
+                availability INTEGER,
+                tanker_active INTEGER,
+                description TEXT,
+                created_at TEXT,
+                FOREIGN KEY(station_id) REFERENCES stations(id)
+            );
+        `, (err) => {
+            if (err) console.error('❌ Ошибка создания таблиц:', err.message);
+            else {
+                console.log('✅ Таблицы созданы');
+                const testStations = [
+                    ['Роснефть (Красная ул., 141)', 'Красная ул., 141', 45.0448, 38.9760, 'Роснефть'],
+                    ['Лукойл (ул. Северная, 12)', 'ул. Северная, 12', 45.0520, 38.9800, 'Лукойл'],
+                    ['Газпромнефть (ул. Новороссийская, 25)', 'ул. Новороссийская, 25', 45.0350, 38.9600, 'Газпромнефть']
+                ];
+                const stmt = db.prepare('INSERT INTO stations (name, address, latitude, longitude, network) VALUES (?, ?, ?, ?, ?)');
+                testStations.forEach(s => stmt.run(s, (err) => {
+                    if (!err) console.log(`✅ Добавлена АЗС: ${s[0]}`);
+                }));
+                stmt.finalize();
             }
         });
-    });
-}
-
-function createTables() {
-    db.exec(`
-        CREATE TABLE stations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT,
-            address TEXT,
-            latitude REAL,
-            longitude REAL,
-            network TEXT,
-            queue_length INTEGER DEFAULT 0,
-            tanker_active INTEGER DEFAULT 0,
-            last_update TEXT
-        );
-        CREATE TABLE fuel_stock (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            station_id INTEGER,
-            fuel_type TEXT,
-            price REAL,
-            available INTEGER DEFAULT 1,
-            FOREIGN KEY(station_id) REFERENCES stations(id)
-        );
-        CREATE TABLE reports (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            station_id INTEGER,
-            user_name TEXT,
-            report_type TEXT,
-            fuel_type TEXT,
-            price REAL,
-            queue_length INTEGER,
-            availability INTEGER,
-            tanker_active INTEGER,
-            description TEXT,
-            created_at TEXT,
-            FOREIGN KEY(station_id) REFERENCES stations(id)
-        );
-    `, (err) => {
-        if (err) {
-            console.error('❌ Ошибка создания таблиц:', err.message);
-        } else {
-            console.log('✅ Таблицы созданы');
-            // Добавляем тестовые АЗС
-            const testStations = [
-                ['Роснефть (Красная ул., 141)', 'Красная ул., 141', 45.0448, 38.9760, 'Роснефть'],
-                ['Лукойл (ул. Северная, 12)', 'ул. Северная, 12', 45.0520, 38.9800, 'Лукойл'],
-                ['Газпромнефть (ул. Новороссийская, 25)', 'ул. Новороссийская, 25', 45.0350, 38.9600, 'Газпромнефть']
-            ];
-            const stmt = db.prepare('INSERT INTO stations (name, address, latitude, longitude, network) VALUES (?, ?, ?, ?, ?)');
-            testStations.forEach(s => stmt.run(s, (err) => {
-                if (err) console.error('Ошибка вставки тестовой АЗС:', err.message);
-                else console.log(`✅ Добавлена АЗС: ${s[0]}`);
-            }));
-            stmt.finalize();
-        }
-    });
+    }
 }
 
 initDB();
 
-// ============================================================
-// ПОЛУЧЕНИЕ ВСЕХ АЗС
-// ============================================================
 app.get('/api/gas-stations', (req, res) => {
-    db.all('SELECT * FROM stations', (err, rows) => {
-        if (err) {
-            console.error('❌ Ошибка получения станций:', err);
-            return res.status(500).json({ error: err.message });
-        }
-        const stations = rows.map(row => ({
-            ...row,
-            fuel_stock: [[]]
-        }));
+    db.all(`
+        SELECT s.*, 
+               GROUP_CONCAT(json_object('fuel_type', f.fuel_type, 'price', f.price, 'available', f.available)) as fuel_stock_json
+        FROM stations s
+        LEFT JOIN fuel_stock f ON s.id = f.station_id
+        GROUP BY s.id
+    `, (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        const stations = rows.map(row => {
+            const fuelStock = row.fuel_stock_json ? JSON.parse(`[${row.fuel_stock_json}]`) : [];
+            return {
+                ...row,
+                fuel_stock: [fuelStock],
+                fuel_stock_json: undefined
+            };
+        });
         res.json(stations);
     });
 });
 
-// ============================================================
-// ОТПРАВКА ОТЧЁТА
-// ============================================================
 app.post('/api/report', (req, res) => {
     const { station_id, user_name, report_type, fuel_type, price, queue_length, availability, tanker_active, description } = req.body;
     const now = new Date().toISOString();
@@ -130,10 +106,7 @@ app.post('/api/report', (req, res) => {
         INSERT INTO reports (station_id, user_name, report_type, fuel_type, price, queue_length, availability, tanker_active, description, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [station_id, user_name || 'Аноним', report_type, fuel_type, price, queue_length, availability, tanker_active || 0, description || '', now], function(err) {
-        if (err) {
-            console.error('❌ Ошибка вставки отчёта:', err);
-            return res.status(500).json({ error: err.message });
-        }
+        if (err) return res.status(500).json({ error: err.message });
 
         let updates = ['last_update = ?'];
         let params = [now];
@@ -145,73 +118,41 @@ app.post('/api/report', (req, res) => {
             updates.push('tanker_active = ?');
             params.push(tanker_active);
         }
-        if (updates.length > 1) {
-            params.push(station_id);
-            db.run(`UPDATE stations SET ${updates.join(', ')} WHERE id = ?`, params, (err) => {
-                if (err) console.error('❌ Ошибка обновления stations:', err);
+        params.push(station_id);
+        db.run(`UPDATE stations SET ${updates.join(', ')} WHERE id = ?`, params);
+
+        if (report_type === 'availability' && fuel_type && availability !== undefined && availability !== null) {
+            db.run(`
+                UPDATE fuel_stock SET available = ? 
+                WHERE station_id = ? AND fuel_type = ?
+            `, [availability, station_id, fuel_type], (err) => {
+                if (err && err.message.includes('no such table')) {
+                    db.run(`
+                        INSERT INTO fuel_stock (station_id, fuel_type, price, available)
+                        VALUES (?, ?, ?, ?)
+                    `, [station_id, fuel_type, price || 0, availability]);
+                }
+            });
+        }
+        
+        if (report_type === 'price' && fuel_type && price !== undefined && price !== null) {
+            db.run(`
+                UPDATE fuel_stock SET price = ? 
+                WHERE station_id = ? AND fuel_type = ?
+            `, [price, station_id, fuel_type], (err) => {
+                if (err && err.message.includes('no such table')) {
+                    db.run(`
+                        INSERT INTO fuel_stock (station_id, fuel_type, price, available)
+                        VALUES (?, ?, ?, ?)
+                    `, [station_id, fuel_type, price, 1]);
+                }
             });
         }
 
-        if (fuel_type) {
-            if (report_type === 'price' && price !== undefined && price !== null) {
-                db.run(`
-                    UPDATE fuel_stock SET price = ? 
-                    WHERE station_id = ? AND fuel_type = ?
-                `, [price, station_id, fuel_type], function(err) {
-                    if (err) {
-                        console.error('❌ Ошибка обновления цены:', err);
-                    } else if (this.changes === 0) {
-                        db.run(`
-                            INSERT INTO fuel_stock (station_id, fuel_type, price, available)
-                            VALUES (?, ?, ?, ?)
-                        `, [station_id, fuel_type, price, 1]);
-                    }
-                });
-            }
-            
-            if (report_type === 'availability' && availability !== undefined && availability !== null) {
-                db.run(`
-                    UPDATE fuel_stock SET available = ? 
-                    WHERE station_id = ? AND fuel_type = ?
-                `, [availability, station_id, fuel_type], function(err) {
-                    if (err) {
-                        console.error('❌ Ошибка обновления availability:', err);
-                    } else if (this.changes === 0) {
-                        db.run(`
-                            INSERT INTO fuel_stock (station_id, fuel_type, price, available)
-                            VALUES (?, ?, ?, ?)
-                        `, [station_id, fuel_type, 0, availability]);
-                    }
-                });
-            }
-        }
-
-        res.json({ success: true, message: 'Отчёт отправлен!' });
+        res.json({ success: true, message: 'Отчёт отправлен! Спасибо!' });
     });
 });
 
-// ============================================================
-// ПОЛУЧЕНИЕ ОТЧЁТОВ ПО АЗС
-// ============================================================
-app.get('/api/reports/:stationId', (req, res) => {
-    const { stationId } = req.params;
-    db.all(`
-        SELECT * FROM reports 
-        WHERE station_id = ? 
-        ORDER BY created_at DESC 
-        LIMIT 50
-    `, [stationId], (err, rows) => {
-        if (err) {
-            console.error('❌ Ошибка получения отчётов:', err);
-            return res.status(500).json({ error: err.message });
-        }
-        res.json(rows);
-    });
-});
-
-// ============================================================
-// ЗАПУСК
-// ============================================================
 app.listen(PORT, () => {
-    console.log(`✅ Сервер запущен на порту ${PORT}`);
+    console.log(`✅ Сервер запущен: http://localhost:${PORT}`);
 });
