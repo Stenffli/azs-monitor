@@ -1,16 +1,25 @@
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
+const path = require('path');
 
 const app = express();
+const PORT = process.env.PORT || 3001;
+
 app.use(cors());
-app.use(express.json());
-app.use(express.static('public'));
+app.use(express.json({ limit: '50mb' }));
+
+// ===== ОТДАЁМ СТАТИКУ С ОТКЛЮЧЁННЫМ КЭШИРОВАНИЕМ =====
+app.use(express.static('public', {
+    maxAge: 0,
+    etag: false,
+    lastModified: false
+}));
 
 const db = new sqlite3.Database('./gas_stations.db');
 
 // ============================================================
-// ВСЕ АЗС (СЛАВЯНСК + НОВОРОССИЙСК)
+// ВСЕ АЗС
 // ============================================================
 const STATIONS = [
   // ===== СЛАВЯНСК-НА-КУБАНИ И РАЙОН =====
@@ -225,7 +234,6 @@ app.get('/api/reports/:stationId', (req, res) => {
 // ============================================================
 // ЗАПУСК
 // ============================================================
-const PORT = process.env.PORT || 3001;
 app.listen(PORT, async () => {
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
   await initDB();
