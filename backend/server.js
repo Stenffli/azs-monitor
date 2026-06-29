@@ -15,73 +15,95 @@ const DB_PATH = path.join(__dirname, '../gas_stations.db');
 let db;
 
 // ============================================================
-// ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ
+// ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ (С ПРОВЕРКОЙ ТАБЛИЦ)
 // ============================================================
 function initDB() {
     const exists = fs.existsSync(DB_PATH);
     db = new sqlite3.Database(DB_PATH, (err) => {
-        if (err) console.error('❌ Ошибка подключения к БД:', err.message);
-        else console.log('✅ База данных подключена');
-    });
-
-    if (!exists) {
-        db.exec(`
-            CREATE TABLE stations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT,
-                address TEXT,
-                latitude REAL,
-                longitude REAL,
-                network TEXT,
-                queue_length INTEGER DEFAULT 0,
-                tanker_active INTEGER DEFAULT 0,
-                last_update TEXT
-            );
-            CREATE TABLE fuel_stock (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                station_id INTEGER,
-                fuel_type TEXT,
-                price REAL,
-                available INTEGER DEFAULT 1,
-                FOREIGN KEY(station_id) REFERENCES stations(id)
-            );
-            CREATE TABLE reports (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                station_id INTEGER,
-                user_name TEXT,
-                report_type TEXT,
-                fuel_type TEXT,
-                price REAL,
-                queue_length INTEGER,
-                availability INTEGER,
-                tanker_active INTEGER,
-                description TEXT,
-                created_at TEXT,
-                FOREIGN KEY(station_id) REFERENCES stations(id)
-            );
-        `, (err) => {
-            if (err) console.error('❌ Ошибка создания таблиц:', err.message);
-            else {
-                console.log('✅ Таблицы созданы');
-                const testStations = [
-                    ['Роснефть (Красная ул., 141)', 'Красная ул., 141', 45.0448, 38.9760, 'Роснефть'],
-                    ['Лукойл (ул. Северная, 12)', 'ул. Северная, 12', 45.0520, 38.9800, 'Лукойл'],
-                    ['Газпромнефть (ул. Новороссийская, 25)', 'ул. Новороссийская, 25', 45.0350, 38.9600, 'Газпромнефть']
-                ];
-                const stmt = db.prepare('INSERT INTO stations (name, address, latitude, longitude, network) VALUES (?, ?, ?, ?, ?)');
-                testStations.forEach(s => stmt.run(s, (err) => {
-                    if (!err) console.log(`✅ Добавлена АЗС: ${s[0]}`);
-                }));
-                stmt.finalize();
+        if (err) {
+            console.error('❌ Ошибка подключения к БД:', err.message);
+            return;
+        }
+        console.log('✅ База данных подключена');
+        
+        // ПРОВЕРЯЕМ, ЕСТЬ ЛИ ТАБЛИЦЫ
+        db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='stations'", (err, row) => {
+            if (err) {
+                console.error('❌ Ошибка проверки таблиц:', err.message);
+                return;
+            }
+            
+            if (!row) {
+                // ТАБЛИЦ НЕТ — СОЗДАЁМ
+                console.log('⚠️ Таблицы не найдены, создаём...');
+                createTables();
+            } else {
+                console.log('✅ Таблицы уже существуют');
             }
         });
-    }
+    });
+}
+
+function createTables() {
+    db.exec(`
+        CREATE TABLE stations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            address TEXT,
+            latitude REAL,
+            longitude REAL,
+            network TEXT,
+            queue_length INTEGER DEFAULT 0,
+            tanker_active INTEGER DEFAULT 0,
+            last_update TEXT
+        );
+        CREATE TABLE fuel_stock (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            station_id INTEGER,
+            fuel_type TEXT,
+            price REAL,
+            available INTEGER DEFAULT 1,
+            FOREIGN KEY(station_id) REFERENCES stations(id)
+        );
+        CREATE TABLE reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            station_id INTEGER,
+            user_name TEXT,
+            report_type TEXT,
+            fuel_type TEXT,
+            price REAL,
+            queue_length INTEGER,
+            availability INTEGER,
+            tanker_active INTEGER,
+            description TEXT,
+            created_at TEXT,
+            FOREIGN KEY(station_id) REFERENCES stations(id)
+        );
+    `, (err) => {
+        if (err) {
+            console.error('❌ Ошибка создания таблиц:', err.message);
+        } else {
+            console.log('✅ Таблицы созданы');
+            // Добавляем тестовые АЗС
+            const testStations = [
+                ['Роснефть (Красная ул., 141)', 'Красная ул., 141', 45.0448, 38.9760, 'Роснефть'],
+                ['Лукойл (ул. Северная, 12)', 'ул. Северная, 12', 45.0520, 38.9800, 'Лукойл'],
+                ['Газпромнефть (ул. Новороссийская, 25)', 'ул. Новороссийская, 25', 45.0350, 38.9600, 'Газпромнефть']
+            ];
+            const stmt = db.prepare('INSERT INTO stations (name, address, latitude, longitude, network) VALUES (?, ?, ?, ?, ?)');
+            testStations.forEach(s => stmt.run(s, (err) => {
+                if (err) console.error('Ошибка вставки тестовой АЗС:', err.message);
+                else console.log(`✅ Добавлена АЗС: ${s[0]}`);
+            }));
+            stmt.finalize();
+        }
+    });
 }
 
 initDB();
 
 // ============================================================
-// ПОЛУЧЕНИЕ ВСЕХ АЗС (УПРОЩЁННАЯ ВЕРСИЯ)
+// ПОЛУЧЕНИЕ ВСЕХ АЗС
 // ============================================================
 app.get('/api/gas-stations', (req, res) => {
     db.all('SELECT * FROM stations', (err, rows) => {
@@ -89,7 +111,6 @@ app.get('/api/gas-stations', (req, res) => {
             console.error('❌ Ошибка получения станций:', err);
             return res.status(500).json({ error: err.message });
         }
-        // Добавляем пустой fuel_stock для совместимости с фронтендом
         const stations = rows.map(row => ({
             ...row,
             fuel_stock: [[]]
@@ -114,7 +135,6 @@ app.post('/api/report', (req, res) => {
             return res.status(500).json({ error: err.message });
         }
 
-        // Обновляем основные поля станции
         let updates = ['last_update = ?'];
         let params = [now];
         if (queue_length !== undefined && queue_length !== null) {
@@ -132,7 +152,6 @@ app.post('/api/report', (req, res) => {
             });
         }
 
-        // Обновляем цену или наличие топлива
         if (fuel_type) {
             if (report_type === 'price' && price !== undefined && price !== null) {
                 db.run(`
@@ -172,7 +191,7 @@ app.post('/api/report', (req, res) => {
 });
 
 // ============================================================
-// ПОЛУЧЕНИЕ ОТЧЁТОВ ПО АЗС (ДЛЯ КОММЕНТАРИЕВ И ГРАФИКОВ)
+// ПОЛУЧЕНИЕ ОТЧЁТОВ ПО АЗС
 // ============================================================
 app.get('/api/reports/:stationId', (req, res) => {
     const { stationId } = req.params;
