@@ -30,7 +30,7 @@ const MY_STATIONS = [
 ];
 
 // ============================================================
-// ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ + ДОБАВЛЕНИЕ ЗАПРАВОК
+// ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ
 // ============================================================
 function initDB() {
     const exists = fs.existsSync(DB_PATH);
@@ -41,7 +41,6 @@ function initDB() {
         }
         console.log('✅ База данных подключена');
         
-        // Проверяем, есть ли таблица stations
         db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='stations'", (err, row) => {
             if (err) {
                 console.error('❌ Ошибка проверки таблиц:', err.message);
@@ -49,21 +48,38 @@ function initDB() {
             }
             
             if (!row) {
-                // Таблиц нет — создаём
                 console.log('⚠️ Таблицы не найдены, создаём...');
                 createTablesAndAddStations();
             } else {
-                // Таблицы есть — проверяем, пустые ли они
+                // Проверяем, есть ли колонка available
+                db.get("PRAGMA table_info(fuel_stock)", (err, columns) => {
+                    if (err) {
+                        console.error('❌ Ошибка проверки колонок:', err.message);
+                        return;
+                    }
+                    // Если нет колонки available — добавляем
+                    db.run("ALTER TABLE fuel_stock ADD COLUMN available INTEGER DEFAULT 1", (err) => {
+                        if (err) {
+                            // Если колонка уже есть — просто пропускаем
+                            if (!err.message.includes('duplicate column name')) {
+                                console.error('❌ Ошибка добавления колонки:', err.message);
+                            }
+                        } else {
+                            console.log('✅ Колонка available добавлена');
+                        }
+                    });
+                });
+                
                 db.get('SELECT COUNT(*) as count FROM stations', (err, countRow) => {
                     if (err) {
                         console.error('❌ Ошибка подсчёта станций:', err.message);
                         return;
                     }
                     if (countRow.count === 0) {
-                        console.log('⚠️ Таблицы есть, но станций нет — добавляем...');
+                        console.log('⚠️ Станций нет — добавляем...');
                         addMyStations();
                     } else {
-                        console.log(`✅ Таблицы есть, станций: ${countRow.count}`);
+                        console.log(`✅ Станций: ${countRow.count}`);
                     }
                 });
             }
@@ -142,7 +158,6 @@ initDB();
 // API МАРШРУТЫ
 // ============================================================
 
-// ----- ПОЛУЧИТЬ ВСЕ АЗС -----
 app.get('/api/gas-stations', (req, res) => {
     db.all(`
         SELECT s.*, 
@@ -167,7 +182,6 @@ app.get('/api/gas-stations', (req, res) => {
     });
 });
 
-// ----- ОТПРАВИТЬ ОТЧЁТ -----
 app.post('/api/report', (req, res) => {
     const { station_id, user_name, report_type, fuel_type, price, queue_length, availability, tanker_active, description } = req.body;
     const now = new Date().toISOString();
@@ -236,9 +250,6 @@ app.post('/api/report', (req, res) => {
     });
 });
 
-// ============================================================
-// ЗАПУСК
-// ============================================================
 app.listen(PORT, () => {
     console.log(`✅ Сервер запущен на порту ${PORT}`);
 });
