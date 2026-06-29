@@ -37,6 +37,7 @@ function initDB() {
     }
     console.log('✅ База данных подключена');
 
+    // Проверяем, есть ли таблица stations
     db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='stations'", (err, row) => {
       if (err) {
         console.error('❌ Ошибка проверки таблиц:', err.message);
@@ -45,41 +46,60 @@ function initDB() {
 
       if (!row) {
         console.log('⚠️ Таблицы не найдены, создаём...');
-        db.exec(`
-          CREATE TABLE stations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT,
-            address TEXT,
-            latitude REAL,
-            longitude REAL,
-            network TEXT,
-            queue_length INTEGER DEFAULT 0,
-            tanker_active INTEGER DEFAULT 0,
-            last_update TEXT
-          );
-        `, (err) => {
-          if (err) {
-            console.error('❌ Ошибка создания таблиц:', err.message);
-          } else {
-            console.log('✅ Таблицы созданы');
-            addMyStations();
-          }
-        });
+        createTablesAndAddStations();
       } else {
+        // Проверяем, сколько записей в таблице
         db.get('SELECT COUNT(*) as count FROM stations', (err, countRow) => {
           if (err) {
             console.error('❌ Ошибка подсчёта станций:', err.message);
             return;
           }
-          if (countRow.count === 0) {
-            console.log('⚠️ Станций нет — добавляем...');
+          console.log(`📊 Найдено станций: ${countRow.count}`);
+          
+          // Если записей меньше, чем должно быть — добавляем
+          if (countRow.count < MY_STATIONS.length) {
+            console.log('⚠️ Добавляем недостающие заправки...');
             addMyStations();
           } else {
-            console.log(`✅ Станций: ${countRow.count}`);
+            console.log('✅ Все заправки уже есть');
           }
         });
       }
     });
+  });
+}
+
+function createTablesAndAddStations() {
+  db.exec(`
+    CREATE TABLE stations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT,
+      address TEXT,
+      latitude REAL,
+      longitude REAL,
+      network TEXT,
+      queue_length INTEGER DEFAULT 0,
+      tanker_active INTEGER DEFAULT 0,
+      last_update TEXT
+    );
+    CREATE TABLE reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      station_id INTEGER,
+      user_name TEXT,
+      report_type TEXT,
+      queue_length INTEGER,
+      tanker_active INTEGER,
+      description TEXT,
+      created_at TEXT,
+      FOREIGN KEY(station_id) REFERENCES stations(id)
+    );
+  `, (err) => {
+    if (err) {
+      console.error('❌ Ошибка создания таблиц:', err.message);
+    } else {
+      console.log('✅ Таблицы созданы');
+      addMyStations();
+    }
   });
 }
 
