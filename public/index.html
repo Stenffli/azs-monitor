@@ -766,4 +766,216 @@
         
         const data = {
             station_id: stationId,
-            user_name:
+            user_name: document.getElementById('reportUserName').value || 'Аноним',
+            report_type: type,
+            fuel_type: fuelType,
+            price: parseFloat(document.getElementById('reportPrice').value) || null,
+            queue_length: parseInt(document.getElementById('reportQueue').value) || null,
+            availability: availability,
+            tanker_active: parseInt(document.getElementById('reportTanker').value) || 0,
+            description: document.getElementById('reportDescription').value || ''
+        };
+        
+        try {
+            const response = await fetch('/api/report', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            
+            closeReportModal();
+            showToast('✅ ' + result.message, 'success');
+            
+            // Локальное обновление для availability
+            if (type === 'availability' && availability === 0 && fuelType) {
+                const station = stations.find(s => s.id === stationId);
+                if (station && station.fuel_stock) {
+                    const fuel = station.fuel_stock.find(f => f.fuel_type === fuelType);
+                    if (fuel) {
+                        fuel.availability = 0;
+                    }
+                }
+                renderStations();
+            }
+            
+            setTimeout(() => {
+                loadStations();
+            }, 1000);
+            
+        } catch (error) {
+            showToast('❌ Ошибка отправки: ' + error.message, 'error');
+        }
+    });
+
+    document.getElementById('reportModal').addEventListener('click', function(e) {
+        if (e.target === this) closeReportModal();
+    });
+
+    // ============================================================
+    // МОДАЛЬНОЕ ОКНО ПОДРОБНОЙ ИНФОРМАЦИИ
+    // ============================================================
+    async function openDetailModal(stationId) {
+        currentDetailStationId = stationId;
+        const station = stations.find(s => s.id === stationId);
+        if (!station) return;
+
+        document.getElementById('detailStationName').textContent = '📍 ' + station.name;
+        document.getElementById('detailStationAddress').textContent = station.address;
+        
+        // Загружаем отчёты
+        let reports = [];
+        try {
+            const response = await fetch(`/api/reports/${stationId}`);
+            if (response.ok) {
+                reports = await response.json();
+            } else {
+                console.warn('Маршрут /api/reports вернул ошибку:', response.status);
+            }
+        } catch (e) {
+            console.warn('Ошибка загрузки комментариев:', e);
+        }
+        
+        // Вкладки
+        document.querySelectorAll('#detailModal .tabs button').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('#detailModal .tabs button').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                const tab = this.dataset.tab;
+                document.querySelectorAll('#detailModal .tab-content').forEach(el => el.classList.remove('active'));
+                document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.add('active');
+            });
+        });
+
+        // График
+        renderChart(reports);
+
+        // Комментарии
+        renderComments(reports);
+
+        // Цены
+        renderFuelGrid(station);
+
+        // Текущая загруженность
+        const queue = station.queue_length || 0;
+        document.getElementById('detailQueue').textContent = queue + '/10';
+        const bar = document.getElementById('detailQueueBar');
+        bar.style.width = (queue * 10) + '%';
+        bar.style.background = queue <= 3 ? '#22c55e' : queue <= 6 ? '#f59e0b' : '#ef4444';
+
+        document.getElementById('detailTanker').textContent = station.tanker_active ? '🚛 Активен' : 'Нет';
+        document.getElementById('detailTanker').style.color = station.tanker_active ? '#92400e' : '#6b7280';
+
+        document.getElementById('detailModal').classList.add('active');
+    }
+
+    function closeDetailModal() {
+        document.getElementById('detailModal').classList.remove('active');
+    }
+
+    document.getElementById('detailModal').addEventListener('click', function(e) {
+        if (e.target === this) closeDetailModal();
+    });
+
+    function renderChart(reports) {
+        const container = document.getElementById('chartBars');
+        const now = new Date();
+        const hours = {};
+        for (let i = 0; i < 24; i++) {
+            const h = now.getHours() - i;
+            const key = h < 0 ? h + 24 : h;
+            hours[key] = { total: 0, count: 0 };
+        }
+
+        reports.forEach(r => {
+            if (r.queue_length !== null && r.queue_length !== undefined) {
+                const date = new Date(r.created_at);
+                const h = date.getHours();
+                if (hours[h] !== undefined) {
+                    hours[h].total += r.queue_length;
+                    hours[h].count += 1;
+                }
+            }
+        });
+
+        const sorted = Object.keys(hours).sort((a, b) => a - b);
+        let maxVal = 1;
+        const data = sorted.map(h => {
+            const avg = hours[h].count > 0 ? hours[h].total / hours[h].count : 0;
+            if (avg > maxVal) maxVal = avg;
+            return { hour: h, avg };
+        });
+
+        let html = '';
+        data.forEach(d => {
+            const pct = maxVal > 0 ? (d.avg / maxVal) * 100 : 0;
+            const color = d.avg <= 3 ? '#22c55e' : d.avg <= 6 ? '#f59e0b' : '#ef4444';
+            html += `
+                <div class="chart-bar">
+                    <span class="label">${String(d.hour).padStart(2, '0')}:00</span>
+                    <div class="bar">
+                        <div class="fill" style="width:${pct}%;background:${color};"></div>
+                    </div>
+                    <span class="value">${Math.round(d.avg)}</span>
+                </div>
+            `;
+        });
+        container.innerHTML = html || '<p style="color:#6b7280;font-size:13px;">Нет данных о загруженности</p>';
+    }
+
+    function renderComments(reports) {
+        const container = document.getElementById('detailComments');
+        const comments = reports.filter(r => r.description && r.description.trim() !== '');
+        if (comments.length === 0) {
+            container.innerHTML = '<p style="color:#6b7280;font-size:13px;">Комментариев пока нет</p>';
+            return;
+        }
+        let html = '';
+        comments.slice().reverse().forEach(c => {
+            const date = new Date(c.created_at);
+            const time = date.toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
+            html += `
+                <div class="comment-item">
+                    <div class="user">${c.user_name || 'Аноним'} · ${time}</div>
+                    <div class="text">${c.description}</div>
+                </div>
+            `;
+        });
+        container.innerHTML = html;
+    }
+
+    function renderFuelGrid(station) {
+        const container = document.getElementById('detailFuelGrid');
+        const fuelArray = station.fuel_stock || [];
+        if (fuelArray.length === 0) {
+            container.innerHTML = '<p style="color:#6b7280;font-size:13px;grid-column:1/-1;">Нет данных о ценах</p>';
+            return;
+        }
+        let html = '';
+        fuelArray.forEach(f => {
+            const status = f.availability === 0 ? '<span class="na">🚫 Нет</span>' : `<span class="price">${f.price} ₽</span>`;
+            html += `
+                <div class="fuel-item">
+                    <span class="type">⛽ ${f.fuel_type}</span>
+                    ${status}
+                </div>
+            `;
+        });
+        container.innerHTML = html;
+    }
+
+    // ============================================================
+    // УТИЛИТЫ
+    // ============================================================
+    function showToast(message, type = '') {
+        const toast = document.getElementById('toast');
+        toast.textContent = message;
+        toast.className = 'toast ' + type;
+        toast.classList.add('show');
+        clearTimeout(toast._timeout);
+        toast._timeout = setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+</script>
+
+</body>
+</html>
