@@ -11,7 +11,6 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, '../public')));
 
-// ===== ПРОВЕРКА БАЗЫ ДАННЫХ =====
 const DB_PATH = path.join(__dirname, '../gas_stations.db');
 let db;
 
@@ -61,7 +60,6 @@ function initDB() {
             if (err) console.error('❌ Ошибка создания таблиц:', err.message);
             else {
                 console.log('✅ Таблицы созданы');
-                // Добавляем тестовые АЗС
                 const testStations = [
                     ['Роснефть (Красная ул., 141)', 'Красная ул., 141', 45.0448, 38.9760, 'Роснефть'],
                     ['Лукойл (ул. Северная, 12)', 'ул. Северная, 12', 45.0520, 38.9800, 'Лукойл'],
@@ -79,11 +77,6 @@ function initDB() {
 
 initDB();
 
-// ============================================================
-// API
-// ============================================================
-
-// ----- ПОЛУЧИТЬ ВСЕ АЗС -----
 app.get('/api/gas-stations', (req, res) => {
     db.all(`
         SELECT s.*, 
@@ -93,7 +86,6 @@ app.get('/api/gas-stations', (req, res) => {
         GROUP BY s.id
     `, (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
-        
         const stations = rows.map(row => {
             const fuelStock = row.fuel_stock_json ? JSON.parse(`[${row.fuel_stock_json}]`) : [];
             return {
@@ -106,10 +98,8 @@ app.get('/api/gas-stations', (req, res) => {
     });
 });
 
-// ----- ОТПРАВИТЬ ОТЧЁТ -----
 app.post('/api/report', (req, res) => {
     const { station_id, user_name, report_type, fuel_type, price, queue_length, availability, tanker_active, description } = req.body;
-    
     const now = new Date().toISOString();
     
     db.run(`
@@ -121,26 +111,21 @@ app.post('/api/report', (req, res) => {
             return res.status(500).json({ error: err.message });
         }
 
-        // Обновляем основные поля
         let updates = ['last_update = ?'];
         let params = [now];
-        
         if (queue_length !== undefined && queue_length !== null) {
             updates.push('queue_length = ?');
             params.push(queue_length);
         }
-        
         if (tanker_active !== undefined && tanker_active !== null) {
             updates.push('tanker_active = ?');
             params.push(tanker_active);
         }
-        
         params.push(station_id);
         db.run(`UPDATE stations SET ${updates.join(', ')} WHERE id = ?`, params, (err) => {
             if (err) console.error('Ошибка обновления stations:', err);
         });
 
-        // Если отчёт о наличии топлива — обновляем fuel_stock
         if (report_type === 'availability' && fuel_type && availability !== undefined && availability !== null) {
             db.run(`
                 UPDATE fuel_stock SET available = ? 
@@ -162,7 +147,6 @@ app.post('/api/report', (req, res) => {
             });
         }
         
-        // Если цена изменилась
         if (report_type === 'price' && fuel_type && price !== undefined && price !== null) {
             db.run(`
                 UPDATE fuel_stock SET price = ? 
@@ -188,7 +172,7 @@ app.post('/api/report', (req, res) => {
     });
 });
 
-// ----- ПОЛУЧИТЬ ОТЧЁТЫ ПО КОНКРЕТНОЙ АЗС -----
+// ===== ЭТОТ МАРШРУТ НУЖЕН ДЛЯ КОММЕНТАРИЕВ =====
 app.get('/api/reports/:stationId', (req, res) => {
     const { stationId } = req.params;
     db.all(`
@@ -205,9 +189,6 @@ app.get('/api/reports/:stationId', (req, res) => {
     });
 });
 
-// ============================================================
-// ЗАПУСК СЕРВЕРА
-// ============================================================
 app.listen(PORT, () => {
     console.log(`✅ Сервер запущен: http://localhost:${PORT}`);
 });
