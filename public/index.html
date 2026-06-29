@@ -513,20 +513,31 @@
     let reports = [];
 
     // ============================================================
-    // ЗАГРУЗКА ДАННЫХ
+    // ЗАГРУЗКА ДАННЫХ (ИСПРАВЛЕНО)
     // ============================================================
     async function loadStations() {
         try {
             const response = await fetch('/api/gas-stations');
+            if (!response.ok) {
+                throw new Error(`Сервер вернул ошибку: ${response.status}`);
+            }
             const data = await response.json();
-            stations = data;
             
+            // Проверяем, что data — это массив
+            if (!Array.isArray(data)) {
+                console.error('Сервер вернул не массив:', data);
+                showToast('⚠️ Ошибка формата данных от сервера', 'error');
+                return;
+            }
+            
+            stations = data;
             const now = new Date();
             document.getElementById('updateTime').textContent = `🕐 ${now.toLocaleTimeString()}`;
             
             renderStations();
             showToast('✅ Данные обновлены!', 'success');
         } catch (error) {
+            console.error('Ошибка загрузки:', error);
             showToast('❌ Ошибка загрузки: ' + error.message, 'error');
         }
     }
@@ -599,7 +610,11 @@
     // РЕНДЕР СПИСКА
     // ============================================================
     function renderStations() {
-        if (!map) return;
+        if (!map) {
+            console.warn('Карта ещё не загружена');
+            return;
+        }
+        
         map.geoObjects.removeAll();
         markers = [];
 
@@ -787,7 +802,7 @@
             closeReportModal();
             showToast('✅ ' + result.message, 'success');
             
-            // ===== ЛОКАЛЬНОЕ ОБНОВЛЕНИЕ =====
+            // Локальное обновление
             if (type === 'availability' && availability === 0) {
                 const station = stations.find(s => s.id === stationId);
                 if (station && station.fuel_stock && station.fuel_stock.length > 0) {
@@ -796,10 +811,9 @@
                         fuel.available = 0;
                     }
                 }
-                renderStations(); // Обновляем список без перезагрузки
+                renderStations();
             }
             
-            // Дополнительно перезагружаем данные с сервера через 1 секунду
             setTimeout(() => {
                 loadStations();
             }, 1000);
@@ -824,7 +838,6 @@
         document.getElementById('detailStationName').textContent = '📍 ' + station.name;
         document.getElementById('detailStationAddress').textContent = station.address;
         
-        // Загружаем отчёты
         let reports = [];
         try {
             const response = await fetch(`/api/reports/${stationId}`);
@@ -837,7 +850,6 @@
             console.warn('Ошибка загрузки комментариев:', e);
         }
         
-        // Вкладки
         document.querySelectorAll('#detailModal .tabs button').forEach(btn => {
             btn.addEventListener('click', function() {
                 document.querySelectorAll('#detailModal .tabs button').forEach(b => b.classList.remove('active'));
@@ -848,16 +860,10 @@
             });
         });
 
-        // График
         renderChart(reports);
-
-        // Комментарии
         renderComments(reports);
-
-        // Цены
         renderFuelGrid(station);
 
-        // Текущая загруженность
         const queue = station.queue_length || 0;
         document.getElementById('detailQueue').textContent = queue + '/10';
         const bar = document.getElementById('detailQueueBar');
