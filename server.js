@@ -10,7 +10,7 @@ app.use(express.static('public'));
 const db = new sqlite3.Database('./gas_stations.db');
 
 // ============================================================
-// ВСЕ АЗС
+// ВСЕ АЗС (С ДОБАВЛЕННОЙ ЛУКОЙЛ)
 // ============================================================
 const STATIONS = [
   { name: 'Лукойл (ул. Ленина, 1)', network: 'Лукойл', address: 'ул. Ленина, 1', lat: 44.7242, lon: 37.7698 },
@@ -38,11 +38,14 @@ const STATIONS = [
 
   { name: 'Лукойл (А-289, Прикубанское с/п)', network: 'Лукойл', address: 'А-289, Прикубанское с/п', lat: 45.211699, lon: 38.116785 },
   { name: 'Rusoil (Строительная ул., 34)', network: 'Rusoil', address: 'Строительная ул., 34', lat: 45.286945, lon: 38.096787 },
-  { name: 'АГЗС (Прибрежное с/п)', network: 'АГЗС', address: 'Прибрежное с/п, Славянский р-н', lat: 45.286423, lon: 38.097739 }
+  { name: 'АГЗС (Прибрежное с/п)', network: 'АГЗС', address: 'Прибрежное с/п, Славянский р-н', lat: 45.286423, lon: 38.097739 },
+
+  // ===== НОВАЯ АЗС =====
+  { name: 'Лукойл (Пролетарская ул., 9/16)', network: 'Лукойл', address: 'Пролетарская ул., 9/16', lat: 45.246920, lon: 38.100739 }
 ];
 
 // ============================================================
-// ИНИЦИАЛИЗАЦИЯ БД (с авто-добавлением топлива)
+// ИНИЦИАЛИЗАЦИЯ БД
 // ============================================================
 async function initDB() {
   db.serialize(() => {
@@ -87,7 +90,6 @@ async function initDB() {
         STATIONS.forEach(s => stmt.run(s.name, s.network, s.address, s.lat, s.lon));
         stmt.finalize();
 
-        // Автоматически добавляем топливо для всех новых АЗС
         db.run(`INSERT INTO fuel_stock (station_id, fuel_type, price, availability) SELECT id, 'АИ-95', 75.85, 1 FROM gas_stations`);
         db.run(`INSERT INTO fuel_stock (station_id, fuel_type, price, availability) SELECT id, 'АИ-92', 58.35, 1 FROM gas_stations`);
         db.run(`INSERT INTO fuel_stock (station_id, fuel_type, price, availability) SELECT id, 'ДТ', 82.99, 1 FROM gas_stations`);
@@ -190,10 +192,31 @@ app.post('/api/report', (req, res) => {
 });
 
 // ============================================================
+// МАРШРУТ ДЛЯ ПОЛУЧЕНИЯ ОТЧЁТОВ (КОММЕНТАРИИ + ГРАФИКИ)
+// ============================================================
+app.get('/api/reports/:stationId', (req, res) => {
+  const { stationId } = req.params;
+  db.all(
+    `SELECT * FROM user_reports 
+     WHERE station_id = ? 
+     ORDER BY created_at DESC 
+     LIMIT 50`,
+    [stationId],
+    (err, rows) => {
+      if (err) {
+        console.error('❌ Ошибка получения отчётов:', err);
+        return res.status(500).json({ error: err.message });
+      }
+      res.json(rows);
+    }
+  );
+});
+
+// ============================================================
 // ЗАПУСК
 // ============================================================
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 app.listen(PORT, async () => {
-  console.log(`🚀 Сервер запущен: http://localhost:${PORT}`);
+  console.log(`🚀 Сервер запущен на порту ${PORT}`);
   await initDB();
 });
