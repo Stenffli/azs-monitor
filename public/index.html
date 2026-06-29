@@ -368,20 +368,31 @@
     let selectedQueue = null;
 
     // ============================================================
-    // ЗАГРУЗКА ДАННЫХ
+    // ЗАГРУЗКА ДАННЫХ (С ПРОВЕРКОЙ)
     // ============================================================
     async function loadStations() {
         try {
             const response = await fetch('/api/gas-stations');
+            if (!response.ok) {
+                throw new Error(`Сервер вернул ошибку: ${response.status}`);
+            }
             const data = await response.json();
-            stations = data;
             
+            // Проверяем, что data — это массив
+            if (!Array.isArray(data)) {
+                console.error('Сервер вернул не массив:', data);
+                showToast('⚠️ Ошибка формата данных от сервера', 'error');
+                return;
+            }
+            
+            stations = data;
             const now = new Date();
             document.getElementById('updateTime').textContent = `🕐 ${now.toLocaleTimeString()}`;
             
             renderStations();
             showToast('✅ Данные обновлены!', 'success');
         } catch (error) {
+            console.error('Ошибка загрузки:', error);
             showToast('❌ Ошибка загрузки: ' + error.message, 'error');
         }
     }
