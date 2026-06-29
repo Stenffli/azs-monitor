@@ -88,9 +88,9 @@ async function initDB() {
         stmt.finalize();
 
         // Автоматически добавляем топливо для всех новых АЗС
-        db.run(`INSERT INTO fuel_stock (station_id, fuel_type, price) SELECT id, 'АИ-95', 75.85 FROM gas_stations`);
-        db.run(`INSERT INTO fuel_stock (station_id, fuel_type, price) SELECT id, 'АИ-92', 58.35 FROM gas_stations`);
-        db.run(`INSERT INTO fuel_stock (station_id, fuel_type, price) SELECT id, 'ДТ', 82.99 FROM gas_stations`);
+        db.run(`INSERT INTO fuel_stock (station_id, fuel_type, price, availability) SELECT id, 'АИ-95', 75.85, 1 FROM gas_stations`);
+        db.run(`INSERT INTO fuel_stock (station_id, fuel_type, price, availability) SELECT id, 'АИ-92', 58.35, 1 FROM gas_stations`);
+        db.run(`INSERT INTO fuel_stock (station_id, fuel_type, price, availability) SELECT id, 'ДТ', 82.99, 1 FROM gas_stations`);
 
         console.log(`✅ Добавлено ${STATIONS.length} АЗС и топливо`);
       } else {
@@ -105,15 +105,35 @@ async function initDB() {
 // ============================================================
 app.get('/api/gas-stations', (req, res) => {
   db.all(`
-    SELECT gs.*, json_group_array(
-      json_object('fuel_type', fs.fuel_type, 'price', fs.price, 'availability', fs.availability)
-    ) as fuel_stock
+    SELECT gs.*, 
+           json_group_array(
+               json_object('fuel_type', fs.fuel_type, 'price', fs.price, 'availability', fs.availability)
+           ) as fuel_stock
     FROM gas_stations gs
     LEFT JOIN fuel_stock fs ON gs.id = fs.station_id
     GROUP BY gs.id
   `, (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows.map(row => ({ ...row, fuel_stock: JSON.parse(`[${row.fuel_stock}]`) })));
+    if (err) {
+      console.error('❌ Ошибка получения станций:', err);
+      return res.status(500).json({ error: err.message });
+    }
+    const stations = rows.map(row => {
+      let fuelStock = [];
+      if (row.fuel_stock) {
+        try {
+          fuelStock = JSON.parse(row.fuel_stock);
+          fuelStock = fuelStock.filter(f => f !== null);
+        } catch (e) {
+          fuelStock = [];
+        }
+      }
+      return {
+        ...row,
+        fuel_stock: fuelStock,
+        fuel_stock_raw: undefined
+      };
+    });
+    res.json(stations);
   });
 });
 
@@ -146,6 +166,15 @@ app.post('/api/report', (req, res) => {
       `, [station_id, fuel_type, price, price]);
     }
 
+    if (report_type === 'availability' && availability !== undefined && fuel_type) {
+      db.run(`
+        INSERT INTO fuel_stock (station_id, fuel_type, price, availability)
+        VALUES (?, ?, (SELECT price FROM fuel_stock WHERE station_id = ? AND fuel_type = ?), ?)
+        ON CONFLICT(station_id, fuel_type)
+        DO UPDATE SET availability = ?, updated_at = CURRENT_TIMESTAMP
+      `, [station_id, fuel_type, station_id, fuel_type, availability, availability]);
+    }
+
     if (report_type === 'queue' && queue_length !== undefined) {
       db.run(`UPDATE gas_stations SET queue_length = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [queue_length, station_id]);
     }
@@ -156,7 +185,7 @@ app.post('/api/report', (req, res) => {
 
     db.run(`UPDATE gas_stations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [station_id]);
 
-    res.json({ success: true, id: this.lastID, message: 'Спасибо! Ваш отчёт отправлен на модерацию.' });
+    res.json({ success: true, id: this.lastID, message: 'Спасибо! Ваш отчёт отправлен.' });
   });
 });
 
