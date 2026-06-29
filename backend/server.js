@@ -172,7 +172,7 @@ app.post('/api/report', (req, res) => {
     });
 });
 
-// ===== ЭТОТ МАРШРУТ НУЖЕН ДЛЯ КОММЕНТАРИЕВ =====
+// ===== МАРШРУТ ДЛЯ КОММЕНТАРИЕВ (ОБЯЗАТЕЛЬНО) =====
 app.get('/api/reports/:stationId', (req, res) => {
     const { stationId } = req.params;
     db.all(`
