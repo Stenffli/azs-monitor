@@ -77,6 +77,9 @@ function initDB() {
 
 initDB();
 
+// ============================================================
+// ПОЛУЧЕНИЕ ВСЕХ АЗС
+// ============================================================
 app.get('/api/gas-stations', (req, res) => {
     db.all(`
         SELECT s.*, 
@@ -98,6 +101,9 @@ app.get('/api/gas-stations', (req, res) => {
     });
 });
 
+// ============================================================
+// ОТПРАВКА ОТЧЁТА
+// ============================================================
 app.post('/api/report', (req, res) => {
     const { station_id, user_name, report_type, fuel_type, price, queue_length, availability, tanker_active, description } = req.body;
     const now = new Date().toISOString();
@@ -111,6 +117,7 @@ app.post('/api/report', (req, res) => {
             return res.status(500).json({ error: err.message });
         }
 
+        // Обновляем очередь и бензовоз
         let updates = ['last_update = ?'];
         let params = [now];
         if (queue_length !== undefined && queue_length !== null) {
@@ -121,24 +128,24 @@ app.post('/api/report', (req, res) => {
             updates.push('tanker_active = ?');
             params.push(tanker_active);
         }
-        params.push(station_id);
-        db.run(`UPDATE stations SET ${updates.join(', ')} WHERE id = ?`, params, (err) => {
-            if (err) console.error('Ошибка обновления stations:', err);
-        });
+        if (updates.length > 1) {
+            params.push(station_id);
+            db.run(`UPDATE stations SET ${updates.join(', ')} WHERE id = ?`, params, (err) => {
+                if (err) console.error('Ошибка обновления stations:', err);
+            });
+        }
 
-        if (report_type === 'availability' && fuel_type && availability !== undefined && availability !== null) {
+        // ===== ОБРАБОТКА НАЛИЧИЯ ТОПЛИВА (ИСПРАВЛЕНО) =====
+        if (report_type === 'availability' && fuel_type && availability !== undefined) {
+            console.log(`📩 Обновление availability: station=${station_id}, fuel=${fuel_type}, available=${availability}`);
             db.run(`
                 UPDATE fuel_stock SET available = ? 
                 WHERE station_id = ? AND fuel_type = ?
             `, [availability, station_id, fuel_type], function(err) {
-                if (err && err.message && err.message.includes('no such table')) {
-                    db.run(`
-                        INSERT INTO fuel_stock (station_id, fuel_type, price, available)
-                        VALUES (?, ?, ?, ?)
-                    `, [station_id, fuel_type, price || 0, availability]);
-                } else if (err) {
+                if (err) {
                     console.error('Ошибка обновления fuel_stock:', err);
                 } else if (this.changes === 0) {
+                    // Если запись не обновилась — вставляем новую
                     db.run(`
                         INSERT INTO fuel_stock (station_id, fuel_type, price, available)
                         VALUES (?, ?, ?, ?)
@@ -147,17 +154,14 @@ app.post('/api/report', (req, res) => {
             });
         }
         
+        // ===== ОБРАБОТКА ЦЕНЫ =====
         if (report_type === 'price' && fuel_type && price !== undefined && price !== null) {
+            console.log(`📩 Обновление цены: station=${station_id}, fuel=${fuel_type}, price=${price}`);
             db.run(`
                 UPDATE fuel_stock SET price = ? 
                 WHERE station_id = ? AND fuel_type = ?
             `, [price, station_id, fuel_type], function(err) {
-                if (err && err.message && err.message.includes('no such table')) {
-                    db.run(`
-                        INSERT INTO fuel_stock (station_id, fuel_type, price, available)
-                        VALUES (?, ?, ?, ?)
-                    `, [station_id, fuel_type, price, 1]);
-                } else if (err) {
+                if (err) {
                     console.error('Ошибка обновления цены:', err);
                 } else if (this.changes === 0) {
                     db.run(`
@@ -173,7 +177,7 @@ app.post('/api/report', (req, res) => {
 });
 
 // ============================================================
-// МАРШРУТ ДЛЯ КОММЕНТАРИЕВ (ОБЯЗАТЕЛЬНО)
+// ПОЛУЧЕНИЕ ОТЧЁТОВ ПО АЗС (ДЛЯ КОММЕНТАРИЕВ И ГРАФИКОВ)
 // ============================================================
 app.get('/api/reports/:stationId', (req, res) => {
     const { stationId } = req.params;
@@ -192,7 +196,7 @@ app.get('/api/reports/:stationId', (req, res) => {
 });
 
 // ============================================================
-// ЗАПУСК СЕРВЕРА
+// ЗАПУСК
 // ============================================================
 app.listen(PORT, () => {
     console.log(`✅ Сервер запущен на порту ${PORT}`);
