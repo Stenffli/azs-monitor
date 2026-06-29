@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+\<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
@@ -71,8 +71,35 @@
         .btn-info { background: #8b5cf6; color: white; }
         .btn-info:hover { background: #7c3aed; }
 
-        .main { display: flex; flex: 1; overflow: hidden; }
+        .main { position: relative; display: flex; flex: 1; overflow: hidden; }
         #map { flex: 1; height: 100%; min-height: 300px; }
+
+        .geo-btn {
+            position: absolute;
+            bottom: 120px;
+            right: 20px;
+            z-index: 1000;
+            padding: 10px 14px;
+            background: white;
+            border: none;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: 0.2s;
+        }
+        .geo-btn:hover {
+            background: #f3f4f6;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        .geo-btn.loading {
+            opacity: 0.6;
+            pointer-events: none;
+        }
 
         .sidebar {
             width: 380px;
@@ -341,6 +368,7 @@
             .queue-scale button { width: 30px; height: 30px; font-size: 11px; }
             .fuel-grid { grid-template-columns: 1fr; }
             .search-box { max-width: 100%; }
+            .geo-btn { bottom: 80px; right: 10px; padding: 8px 12px; font-size: 12px; }
         }
 
         .toast {
@@ -380,6 +408,7 @@
 
     <div class="main">
         <div id="map"></div>
+        <button id="geoBtn" class="geo-btn" onclick="locateMe()">📍 Моё местоположение</button>
         <div class="sidebar">
             <div class="sidebar-header">
                 <h3>📋 Список АЗС</h3>
@@ -538,6 +567,8 @@
     let currentDetailStationId = null;
     let reports = [];
     let allStations = [];
+    let userMarker = null;
+    let userCircle = null;
 
     // ============================================================
     // ЗАГРУЗКА ДАННЫХ
@@ -598,6 +629,75 @@
             console.error('Ошибка загрузки отчётов:', error);
             return [];
         }
+    }
+
+    // ============================================================
+    // ГЕОЛОКАЦИЯ
+    // ============================================================
+    function locateMe() {
+        const btn = document.getElementById('geoBtn');
+        btn.classList.add('loading');
+        btn.textContent = '⏳ Определение...';
+
+        if (!navigator.geolocation) {
+            showToast('❌ Ваш браузер не поддерживает геолокацию', 'error');
+            btn.classList.remove('loading');
+            btn.innerHTML = '📍 Моё местоположение';
+            return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
+                
+                map.setCenter([lat, lon], 15, { duration: 500 });
+                
+                if (userMarker) {
+                    map.geoObjects.remove(userMarker);
+                }
+                userMarker = new ymaps.Placemark(
+                    [lat, lon],
+                    { balloonContent: '📍 Вы здесь' },
+                    { preset: 'islands#blueCircleIcon', iconColor: '#0077ff' }
+                );
+                map.geoObjects.add(userMarker);
+                
+                const accuracy = position.coords.accuracy;
+                if (userCircle) {
+                    map.geoObjects.remove(userCircle);
+                }
+                userCircle = new ymaps.Circle(
+                    [[lat, lon], accuracy],
+                    {},
+                    {
+                        fillColor: 'rgba(0, 119, 255, 0.1)',
+                        strokeColor: '#0077ff',
+                        strokeWidth: 1
+                    }
+                );
+                map.geoObjects.add(userCircle);
+                
+                showToast('📍 Ваше местоположение определено', 'success');
+                btn.classList.remove('loading');
+                btn.innerHTML = '📍 Моё местоположение';
+            },
+            (error) => {
+                console.error('Ошибка геолокации:', error);
+                let msg = 'Не удалось определить местоположение';
+                if (error.code === 1) msg = '❌ Доступ к геолокации запрещён. Разрешите доступ в настройках браузера.';
+                if (error.code === 2) msg = '❌ Не удалось определить местоположение. Попробуйте позже.';
+                if (error.code === 3) msg = '❌ Таймаут геолокации. Проверьте интернет.';
+                showToast(msg, 'error');
+                btn.classList.remove('loading');
+                btn.innerHTML = '📍 Моё местоположение';
+            },
+            {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 0
+            }
+        );
     }
 
     // ============================================================
