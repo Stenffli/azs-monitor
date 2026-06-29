@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>АЗС Краснодарского края</title>
+    <script src="https://api-maps.yandex.ru/2.1/?apikey=5a19f988-5f60-4f0a-a985-4a655abaf30d7&lang=ru_RU"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, sans-serif; background: #f5f7fa; }
+        #app { display: flex; flex-direction: column; height: 100vh; }
+        
+        .header {
+            background: white;
+            padding: 12px 16px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            z-index: 10;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .header h1 { font-size: 18px; font-weight: 700; color: #1a1a2e; }
+        .header-actions { display: flex; gap: 8px; align-items: center; }
+        
+        .btn {
+            padding: 6px 14px;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-primary { background: #0077ff; color: white; }
+        .btn-primary:hover { background: #005fcc; }
+        .btn-success { background: #22c55e; color: white; }
+        .btn-success:hover { background: #16a34a; }
+        .btn-outline { background: transparent; border: 1px solid #d1d5db; color: #374151; }
+        .btn-outline:hover { background: #f3f4f6; }
+
+        .main { display: flex; flex: 1; overflow: hidden; }
+        #map { flex: 1; height: 100%; min-height: 300px; }
+
+        .sidebar {
+            width: 380px;
+            min-width: 380px;
+            background: white;
+            border-left: 1px solid #e5e7eb;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .sidebar-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .sidebar-header h3 { font-size: 15px; font-weight: 600; color: #1a1a2e; }
+        .sidebar-header span { font-size: 13px; color: #6b7280; }
+
+        .station-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+        }
+
+        .station-card {
+            background: #f9fafb;
+            border-radius: 8px;
+            padding: 12px 14px;
+            margin-bottom: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+        }
+        .station-card:hover { background: #f3f4f6; }
+        .station-card .name { font-weight: 600; font-size: 14px; color: #1a1a2e; }
+        .station-card .address { font-size: 12px; color: #6b7280; margin: 2px 0 4px; }
+        .station-card .info { display: flex; gap: 12px; font-size: 13px; flex-wrap: wrap; align-items: center; }
+        .station-card .price { font-weight: 600; color: #059669; }
+        .station-card .price.dt { color: #7c3aed; }
+        .station-card .price.premium { color: #8b5cf6; }
+        
+        .queue-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            font-weight: 700;
+            font-size: 13px;
+            color: white;
+            flex-shrink: 0;
+        }
+        .queue-badge.green { background: #22c55e; }
+        .queue-badge.yellow { background: #f59e0b; }
+        .queue-badge.red { background: #ef4444; }
+        
+        .network { font-size: 11px; color: #6b7280; background: #e5e7eb; padding: 1px 8px; border-radius: 10px; }
+
+        .report-btn {
+            margin-top: 6px;
+            padding: 4px 12px;
+            border: 1px solid #0077ff;
+            border-radius: 4px;
+            background: transparent;
+            color: #0077ff;
+            font-size: 11px;
+            cursor: pointer;
+        }
+        .report-btn:hover { background: #0077ff; color: white; }
+
+        .tanker-badge {
+            display: inline-block;
+            background: #fef3c7;
+            color: #92400e;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-top: 4px;
+        }
+
+        /* ===== МОДАЛЬНОЕ ОКНО ===== */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 450px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .modal h2 { font-size: 18px; margin-bottom: 4px; }
+        .modal .subtitle { font-size: 13px; color: #6b7280; margin-bottom: 16px; }
+        .modal label { display: block; font-size: 13px; font-weight: 500; margin: 10px 0 4px; color: #374151; }
+        .modal input, .modal select, .modal textarea {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        .modal textarea { resize: vertical; min-height: 60px; }
+        .modal-actions { display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end; }
+        
+        .radio-group {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 4px;
+        }
+        .radio-group label {
+            font-weight: 400;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+        }
+        .radio-group input[type="radio"] { width: auto; margin-right: 4px; }
+
+        .queue-scale {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-top: 4px;
+        }
+        .queue-scale button {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border: 2px solid #d1d5db;
+            background: white;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: #6b7280;
+        }
+        .queue-scale button:hover { border-color: #0077ff; }
+        .queue-scale button.selected {
+            border-color: #0077ff;
+            background: #0077ff;
+            color: white;
+        }
+        .queue-scale button.low { border-color: #22c55e; }
+        .queue-scale button.low.selected { background: #22c55e; border-color: #22c55e; }
+        .queue-scale button.medium { border-color: #f59e0b; }
+        .queue-scale button.medium.selected { background: #f59e0b; border-color: #f59e0b; }
+        .queue-scale button.high { border-color: #ef4444; }
+        .queue-scale button.high.selected { background: #ef4444; border-color: #ef4444; }
+
+        .queue-label {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 4px;
+            width: 100%;
+            text-align: center;
+        }
+
+        @media (max-width: 768px) {
+            .sidebar { width: 100%; min-width: unset; height: 45vh; border-left: none; border-top: 1px solid #e5e7eb; }
+            .main { flex-direction: column; }
+            #map { height: 55vh; min-height: unset; }
+            .modal { max-width: 95%; padding: 16px; }
+            .queue-scale button { width: 30px; height: 30px; font-size: 11px; }
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1a1a2e;
+            color: white;
+            padding: 10px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+        .toast.show { opacity: 1; }
+        .toast.success { background: #16a34a; }
+        .toast.error { background: #dc2626; }
+    </style>
+</head>
+<body>
+
+<div id="app">
+    <div class="header">
+        <h1>⛽ АЗС Краснодарского края</h1>
+        <div class="header-actions">
+            <span id="updateTime" style="font-size:12px;color:#6b7280;"></span>
+            <button class="btn btn-primary" onclick="loadStations()">🔄 Обновить</button>
+        </div>
+    </div>
+
+    <div class="main">
+        <div id="map"></div>
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h3>📋 Список АЗС</h3>
+                <span id="stationCount">0</span>
+            </div>
+            <div class="station-list" id="stationList">
+                <div style="padding:20px;text-align:center;color:#6b7280;">Загрузка...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ===== МОДАЛЬНОЕ ОКНО ===== -->
+<div class="modal-overlay" id="reportModal">
+    <div class="modal">
+        <h2>📝 Сообщить о ситуации</h2>
+        <div class="subtitle" id="modalStationName">📍 АЗС</div>
+        <form id="reportForm">
+            <input type="hidden" id="reportStationId">
+            
+            <label>Ваше имя (необязательно)</label>
+            <input type="text" id="reportUserName" placeholder="Аноним">
+            
+            <label>Тип отчёта *</label>
+            <select id="reportType" required>
+                <option value="price">💰 Изменилась цена</option>
+                <option value="queue">🚗 Изменилась очередь</option>
+                <option value="availability">⛽ Пропало / появилось топливо</option>
+                <option value="tanker">🚛 Бензовоз сливается</option>
+            </select>
+            
+            <div id="reportFields">
+                <div id="fuelFields">
+                    <label>Вид топлива</label>
+                    <select id="reportFuelType">
+                        <optgroup label="Обычное топливо">
+                            <option value="АИ-92">АИ-92</option>
+                            <option value="АИ-95" selected>АИ-95</option>
+                            <option value="АИ-98">АИ-98</option>
+                            <option value="АИ-100">АИ-100</option>
+                            <option value="ДТ">ДТ (Дизель)</option>
+                        </optgroup>
+                        <optgroup label="Премиум топливо ⭐">
+                            <option value="95*">95* (Премиум)</option>
+                            <option value="ДТ*">ДТ* (Премиум дизель)</option>
+                        </optgroup>
+                    </select>
+                </div>
+
+                <div id="priceField">
+                    <label>Цена (₽)</label>
+                    <input type="number" id="reportPrice" step="0.01" placeholder="75.85">
+                </div>
+
+                <div id="availabilityField">
+                    <label>Наличие топлива</label>
+                    <div class="radio-group">
+                        <label><input type="radio" name="avail" value="1" checked> ✅ В наличии</label>
+                        <label><input type="radio" name="avail" value="0"> ❌ Нет в наличии</label>
+                    </div>
+                </div>
+
+                <div id="queueField">
+                    <label>Загруженность (1 — свободно, 10 — огромная очередь)</label>
+                    <div class="queue-scale" id="queueScale">
+                        <button type="button" data-value="1" class="low">1</button>
+                        <button type="button" data-value="2" class="low">2</button>
+                        <button type="button" data-value="3" class="low">3</button>
+                        <button type="button" data-value="4" class="medium">4</button>
+                        <button type="button" data-value="5" class="medium">5</button>
+                        <button type="button" data-value="6" class="medium">6</button>
+                        <button type="button" data-value="7" class="high">7</button>
+                        <button type="button" data-value="8" class="high">8</button>
+                        <button type="button" data-value="9" class="high">9</button>
+                        <button type="button" data-value="10" class="high">10</button>
+                    </div>
+                    <div class="queue-label" id="queueLabel">Выберите загруженность</div>
+                    <input type="hidden" id="reportQueue" value="">
+                </div>
+
+                <div id="tankerField" style="display:none;">
+                    <div style="background:#fef3c7;padding:10px;border-radius:6px;margin:8px 0;">
+                        <p style="font-size:14px;color:#92400e;margin:0;">
+                            ⚠️ <strong>Бензовоз сливается</strong><br>
+                            <span style="font-size:12px;">Заправка временно недоступна. Обычно занимает 30–60 минут.</span>
+                        </p>
+                    </div>
+                    <input type="hidden" id="reportTanker" value="1">
+                </div>
+            </div>
+            
+            <label>Комментарий</label>
+            <textarea id="reportDescription" placeholder="Опишите ситуацию..."></textarea>
+            
+            <div class="modal-actions">
+                <button type="button" class="btn btn-outline" onclick="closeReportModal()">Отмена</button>
+                <button type="submit" class="btn btn-success">📤 Отправить</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+    let map = null;
+    let stations = [];
+    let markers = [];
+    let selectedQueue = null;
+
+    // ============================================================
+    // ЗАГРУЗКА ДАННЫХ
+    // ============================================================
+    async function loadStations() {
+        try {
+            const response = await fetch('/api/gas-stations');
+            const data = await response.json();
+            stations = data;
+            
+            const now = new Date();
+            document.getElementById('updateTime').textContent = `🕐 ${now.toLocaleTimeString()}`;
+            
+            renderStations();
+            showToast('✅ Данные обновлены!', 'success');
+        } catch (error) {
+            showToast('❌ Ошибка загрузки: ' + error.message, 'error');
+        }
+    }
+
+    // ============================================================
+    // ОТРИСОВКА КАРТЫ И СПИСКА
+    // ============================================================
+    ymaps.ready(() => {
+        map = new ymaps.Map('map', {
+            center: [44.90, 37.90],
+            zoom: 9,
+            controls: ['zoomControl', 'fullscreenControl']
+        });
+        loadStations();
+    });
+
+    function getQueueColor(value) {
+        if (value <= 3) return 'green';
+        if (value <= 6) return 'yellow';
+        return 'red';
+    }
+
+    function getFuelPrice(station, type) {
+        const fuelArray = station.fuel_stock && station.fuel_stock.length > 0 ? station.fuel_stock[0] : [];
+        const fuel = fuelArray.find(f => f.fuel_type === type);
+        return fuel ? fuel.price : null;
+    }
+
+    function formatFuelPrice(price) {
+        return price !== null && price !== undefined ? price + ' ₽' : 'нет';
+    }
+
+    function renderStations() {
+        if (!map) return;
+        map.geoObjects.removeAll();
+        markers = [];
+
+        const list = document.getElementById('stationList');
+        document.getElementById('stationCount').textContent = stations.length;
+
+        if (stations.length === 0) {
+            list.innerHTML = '<div style="padding:20px;text-align:center;color:#6b7280;">🚫 Нет данных</div>';
+            return;
+        }
+
+        let html = '';
+        stations.forEach(s => {
+            const fuel95 = getFuelPrice(s, 'АИ-95');
+            const fuelDt = getFuelPrice(s, 'ДТ');
+            const fuel95p = getFuelPrice(s, '95*');
+            const fuelDtp = getFuelPrice(s, 'ДТ*');
+            const fuel100 = getFuelPrice(s, 'АИ-100');
+            
+            const tanker = s.tanker_active || false;
+            const queueValue = s.queue_length || 0;
+            const queueColor = getQueueColor(queueValue);
+
+            html += `
+                <div class="station-card" onclick="flyTo(${s.latitude}, ${s.longitude})">
+                    <div class="name">${s.name}</div>
+                    <div class="address">${s.address}</div>
+                    <div class="info">
+                        <span class="price">⛽ 95: ${formatFuelPrice(fuel95)}</span>
+                        <span class="price dt">🛢️ ДТ: ${formatFuelPrice(fuelDt)}</span>
+                        ${fuel95p ? `<span class="price premium">⭐ 95*: ${fuel95p} ₽</span>` : ''}
+                        ${fuelDtp ? `<span class="price premium">⭐ ДТ*: ${fuelDtp} ₽</span>` : ''}
+                        ${fuel100 ? `<span class="price">💯 100: ${fuel100} ₽</span>` : ''}
+                        <span class="queue-badge ${queueColor}">${queueValue}</span>
+                        <span class="network">${s.network}</span>
+                    </div>
+                    ${tanker ? '<div class="tanker-badge">🚛 Бензовоз сливается</div>' : ''}
+                    <button class="report-btn" onclick="event.stopPropagation(); openReportModal(${s.id}, '${s.name}')">📝 Сообщить</button>
+                </div>
+            `;
+        });
+        list.innerHTML = html;
+
+        // Метки на карте
+        stations.forEach(s => {
+            const queueValue = s.queue_length || 0;
+            let markerColor = '#22c55e';
+            if (queueValue > 6) markerColor = '#ef4444';
+            else if (queueValue > 3) markerColor = '#f59e0b';
+
+            const fuel95 = getFuelPrice(s, 'АИ-95');
+
+            const placemark = new ymaps.Placemark(
+                [s.latitude, s.longitude],
+                {
+                    balloonContent: `
+                        <b>${s.name}</b><br>
+                        📍 ${s.address}<br>
+                        ⛽ 95: ${formatFuelPrice(fuel95)}<br>
+                        🚗 Загруженность: ${queueValue}/10<br>
+                        ${s.tanker_active ? '🚛 <b>Бензовоз сливается!</b><br>' : ''}
+                        <br>
+                        <button onclick="openReportModal(${s.id}, '${s.name}')" style="padding:6px 12px;background:#0077ff;color:white;border:none;border-radius:4px;cursor:pointer;">📝 Сообщить</button>
+                    `,
+                    iconContent: queueValue.toString(),
+                    iconColor: markerColor
+                },
+                {
+                    preset: 'islands#circleIcon',
+                    iconColor: markerColor,
+                    iconContentLayout: ymaps.templateLayoutFactory.createClass(
+                        `<div style="display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:${markerColor};color:white;font-weight:700;font-size:14px;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3);">$[properties.iconContent]</div>`
+                    )
+                }
+            );
+            map.geoObjects.add(placemark);
+            markers.push(placemark);
+        });
+    }
+
+    function flyTo(lat, lon) {
+        if (map) map.setCenter([lat, lon], 15, { duration: 500 });
+    }
+
+    // ============================================================
+    // МОДАЛЬНОЕ ОКНО
+    // ============================================================
+    function openReportModal(stationId, stationName) {
+        document.getElementById('reportStationId').value = stationId;
+        document.getElementById('modalStationName').textContent = '📍 ' + stationName;
+        document.getElementById('reportForm').reset();
+        document.getElementById('reportType').value = 'price';
+        document.getElementById('reportTanker').value = '0';
+        document.getElementById('tankerField').style.display = 'none';
+        selectedQueue = null;
+        document.getElementById('queueLabel').textContent = 'Выберите загруженность';
+        document.querySelectorAll('#queueScale button').forEach(b => b.classList.remove('selected'));
+        document.getElementById('reportQueue').value = '';
+        toggleReportFields();
+        document.getElementById('reportModal').classList.add('active');
+    }
+
+    function closeReportModal() {
+        document.getElementById('reportModal').classList.remove('active');
+    }
+
+    // ===== ШКАЛА ОЧЕРЕДИ =====
+    document.querySelectorAll('#queueScale button').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('#queueScale button').forEach(b => b.classList.remove('selected'));
+            this.classList.add('selected');
+            selectedQueue = parseInt(this.dataset.value);
+            document.getElementById('reportQueue').value = selectedQueue;
+            
+            const labels = ['', 'Свободно', 'Почти свободно', 'Несколько машин', 'Небольшая очередь', 'Средняя очередь', 'Средняя очередь', 'Большая очередь', 'Очень большая', 'Огромная', 'Кошмар'];
+            document.getElementById('queueLabel').textContent = `${selectedQueue} — ${labels[selectedQueue] || ''}`;
+        });
+    });
+
+    // ===== ПЕРЕКЛЮЧЕНИЕ ПОЛЕЙ =====
+    document.getElementById('reportType').addEventListener('change', toggleReportFields);
+
+    function toggleReportFields() {
+        const type = document.getElementById('reportType').value;
+        
+        document.getElementById('fuelFields').style.display = 'block';
+        document.getElementById('priceField').style.display = 'block';
+        document.getElementById('availabilityField').style.display = 'block';
+        document.getElementById('queueField').style.display = 'block';
+        document.getElementById('tankerField').style.display = 'none';
+        
+        if (type === 'price') {
+            document.getElementById('availabilityField').style.display = 'none';
+            document.getElementById('queueField').style.display = 'none';
+        } else if (type === 'queue') {
+            document.getElementById('priceField').style.display = 'none';
+            document.getElementById('availabilityField').style.display = 'none';
+        } else if (type === 'availability') {
+            document.getElementById('priceField').style.display = 'none';
+            document.getElementById('queueField').style.display = 'none';
+        } else if (type === 'tanker') {
+            document.getElementById('fuelFields').style.display = 'none';
+            document.getElementById('priceField').style.display = 'none';
+            document.getElementById('availabilityField').style.display = 'none';
+            document.getElementById('queueField').style.display = 'none';
+            document.getElementById('tankerField').style.display = 'block';
+            document.getElementById('reportTanker').value = '1';
+        }
+    }
+
+    // ============================================================
+    // ОТПРАВКА ОТЧЁТА + АВТООБНОВЛЕНИЕ БЕЗ ПЕРЕЗАГРУЗКИ
+    // ============================================================
+    document.getElementById('reportForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const type = document.getElementById('reportType').value;
+        const availRadio = document.querySelector('input[name="avail"]:checked');
+        
+        const data = {
+            station_id: parseInt(document.getElementById('reportStationId').value),
+            user_name: document.getElementById('reportUserName').value || 'Аноним',
+            report_type: type,
+            fuel_type: document.getElementById('reportFuelType').value,
+            price: parseFloat(document.getElementById('reportPrice').value) || null,
+            queue_length: parseInt(document.getElementById('reportQueue').value) || null,
+            availability: availRadio ? parseInt(availRadio.value) : null,
+            tanker_active: parseInt(document.getElementById('reportTanker').value) || 0,
+            description: document.getElementById('reportDescription').value || ''
+        };
+        
+        try {
+            const response = await fetch('/api/report', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            
+            closeReportModal();
+            showToast('✅ ' + result.message, 'success');
+            
+            // ===== АВТООБНОВЛЕНИЕ БЕЗ ПЕРЕЗАГРУЗКИ СТРАНИЦЫ =====
+            setTimeout(() => {
+                loadStations(); // просто перезагружаем данные
+            }, 500);
+            
+        } catch (error) {
+            showToast('❌ Ошибка отправки: ' + error.message, 'error');
+        }
+    });
+
+    // ============================================================
+    // ЗАКРЫТИЕ МОДАЛКИ
+    // ============================================================
+    document.getElementById('reportModal').addEventListener('click', function(e) {
+        if (e.target === this) closeReportModal();
+    });
+
+    // ============================================================
+    // УТИЛИТЫ
+    // ============================================================
+    function showToast(message, type = '') {
+        const toast = document.getElementById('toast');
+        toast.textContent = message;
+        toast.className = 'toast ' + type;
+        toast.classList.add('show');
+        clearTimeout(toast._timeout);
+        toast._timeout = setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+</script>
+
+</body>
+</html>
