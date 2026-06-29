@@ -568,14 +568,29 @@
         return 'red';
     }
 
+    function parseFuelStock(station) {
+        let fuelArray = [];
+        if (typeof station.fuel_stock === 'string') {
+            try {
+                const parsed = JSON.parse(station.fuel_stock);
+                fuelArray = parsed.filter(f => f !== null);
+            } catch (e) {
+                fuelArray = [];
+            }
+        } else if (Array.isArray(station.fuel_stock)) {
+            fuelArray = station.fuel_stock;
+        }
+        return fuelArray;
+    }
+
     function getFuelPrice(station, type) {
-        const fuelArray = station.fuel_stock || [];
+        const fuelArray = parseFuelStock(station);
         const fuel = fuelArray.find(f => f.fuel_type === type);
         return fuel ? fuel.price : null;
     }
 
     function getFuelAvailability(station, type) {
-        const fuelArray = station.fuel_stock || [];
+        const fuelArray = parseFuelStock(station);
         const fuel = fuelArray.find(f => f.fuel_type === type);
         return fuel ? fuel.availability : 1;
     }
@@ -790,8 +805,9 @@
             // Локальное обновление для availability
             if (type === 'availability' && availability === 0 && fuelType) {
                 const station = stations.find(s => s.id === stationId);
-                if (station && station.fuel_stock) {
-                    const fuel = station.fuel_stock.find(f => f.fuel_type === fuelType);
+                if (station) {
+                    const fuelArray = parseFuelStock(station);
+                    const fuel = fuelArray.find(f => f.fuel_type === fuelType);
                     if (fuel) {
                         fuel.availability = 0;
                     }
@@ -946,7 +962,7 @@
 
     function renderFuelGrid(station) {
         const container = document.getElementById('detailFuelGrid');
-        const fuelArray = station.fuel_stock || [];
+        const fuelArray = parseFuelStock(station);
         if (fuelArray.length === 0) {
             container.innerHTML = '<p style="color:#6b7280;font-size:13px;grid-column:1/-1;">Нет данных о ценах</p>';
             return;
