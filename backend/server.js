@@ -82,6 +82,8 @@ initDB();
 // ============================================================
 // API
 // ============================================================
+
+// ----- ПОЛУЧИТЬ ВСЕ АЗС -----
 app.get('/api/gas-stations', (req, res) => {
     db.all(`
         SELECT s.*, 
@@ -104,6 +106,7 @@ app.get('/api/gas-stations', (req, res) => {
     });
 });
 
+// ----- ОТПРАВИТЬ ОТЧЁТ -----
 app.post('/api/report', (req, res) => {
     const { station_id, user_name, report_type, fuel_type, price, queue_length, availability, tanker_active, description } = req.body;
     
@@ -113,7 +116,10 @@ app.post('/api/report', (req, res) => {
         INSERT INTO reports (station_id, user_name, report_type, fuel_type, price, queue_length, availability, tanker_active, description, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [station_id, user_name || 'Аноним', report_type, fuel_type, price, queue_length, availability, tanker_active || 0, description || '', now], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) {
+            console.error('Ошибка вставки отчёта:', err);
+            return res.status(500).json({ error: err.message });
+        }
 
         // Обновляем основные поля
         let updates = ['last_update = ?'];
@@ -130,16 +136,26 @@ app.post('/api/report', (req, res) => {
         }
         
         params.push(station_id);
-        db.run(`UPDATE stations SET ${updates.join(', ')} WHERE id = ?`, params);
+        db.run(`UPDATE stations SET ${updates.join(', ')} WHERE id = ?`, params, (err) => {
+            if (err) console.error('Ошибка обновления stations:', err);
+        });
 
         // Если отчёт о наличии топлива — обновляем fuel_stock
         if (report_type === 'availability' && fuel_type && availability !== undefined && availability !== null) {
             db.run(`
                 UPDATE fuel_stock SET available = ? 
                 WHERE station_id = ? AND fuel_type = ?
-            `, [availability, station_id, fuel_type], (err) => {
-                if (err && err.message.includes('no such table')) {
+            `, [availability, station_id, fuel_type], function(err) {
+                if (err && err.message && err.message.includes('no such table')) {
                     // Если таблица пустая — добавляем запись
+                    db.run(`
+                        INSERT INTO fuel_stock (station_id, fuel_type, price, available)
+                        VALUES (?, ?, ?, ?)
+                    `, [station_id, fuel_type, price || 0, availability]);
+                } else if (err) {
+                    console.error('Ошибка обновления fuel_stock:', err);
+                } else if (this.changes === 0) {
+                    // Если запись не обновилась (нет такого топлива) — добавляем
                     db.run(`
                         INSERT INTO fuel_stock (station_id, fuel_type, price, available)
                         VALUES (?, ?, ?, ?)
@@ -153,8 +169,15 @@ app.post('/api/report', (req, res) => {
             db.run(`
                 UPDATE fuel_stock SET price = ? 
                 WHERE station_id = ? AND fuel_type = ?
-            `, [price, station_id, fuel_type], (err) => {
-                if (err && err.message.includes('no such table')) {
+            `, [price, station_id, fuel_type], function(err) {
+                if (err && err.message && err.message.includes('no such table')) {
+                    db.run(`
+                        INSERT INTO fuel_stock (station_id, fuel_type, price, available)
+                        VALUES (?, ?, ?, ?)
+                    `, [station_id, fuel_type, price, 1]);
+                } else if (err) {
+                    console.error('Ошибка обновления цены:', err);
+                } else if (this.changes === 0) {
                     db.run(`
                         INSERT INTO fuel_stock (station_id, fuel_type, price, available)
                         VALUES (?, ?, ?, ?)
@@ -164,6 +187,23 @@ app.post('/api/report', (req, res) => {
         }
 
         res.json({ success: true, message: 'Отчёт отправлен! Спасибо!' });
+    });
+});
+
+// ----- ПОЛУЧИТЬ ОТЧЁТЫ ПО КОНКРЕТНОЙ АЗС -----
+app.get('/api/reports/:stationId', (req, res) => {
+    const { stationId } = req.params;
+    db.all(`
+        SELECT * FROM reports 
+        WHERE station_id = ? 
+        ORDER BY created_at DESC 
+        LIMIT 50
+    `, [stationId], (err, rows) => {
+        if (err) {
+            console.error('Ошибка получения отчётов:', err);
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(rows);
     });
 });
 
