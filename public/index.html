@@ -762,14 +762,18 @@
         e.preventDefault();
         const type = document.getElementById('reportType').value;
         const availRadio = document.querySelector('input[name="avail"]:checked');
+        const stationId = parseInt(document.getElementById('reportStationId').value);
+        const fuelType = document.getElementById('reportFuelType').value;
+        const availability = availRadio ? parseInt(availRadio.value) : null;
+        
         const data = {
-            station_id: parseInt(document.getElementById('reportStationId').value),
+            station_id: stationId,
             user_name: document.getElementById('reportUserName').value || 'Аноним',
             report_type: type,
-            fuel_type: document.getElementById('reportFuelType').value,
+            fuel_type: fuelType,
             price: parseFloat(document.getElementById('reportPrice').value) || null,
             queue_length: parseInt(document.getElementById('reportQueue').value) || null,
-            availability: availRadio ? parseInt(availRadio.value) : null,
+            availability: availability,
             tanker_active: parseInt(document.getElementById('reportTanker').value) || 0,
             description: document.getElementById('reportDescription').value || ''
         };
@@ -782,7 +786,24 @@
             const result = await response.json();
             closeReportModal();
             showToast('✅ ' + result.message, 'success');
-            setTimeout(() => loadStations(), 500);
+            
+            // ===== ЛОКАЛЬНОЕ ОБНОВЛЕНИЕ =====
+            if (type === 'availability' && availability === 0) {
+                const station = stations.find(s => s.id === stationId);
+                if (station && station.fuel_stock && station.fuel_stock.length > 0) {
+                    const fuel = station.fuel_stock[0].find(f => f.fuel_type === fuelType);
+                    if (fuel) {
+                        fuel.available = 0;
+                    }
+                }
+                renderStations(); // Обновляем список без перезагрузки
+            }
+            
+            // Дополнительно перезагружаем данные с сервера через 1 секунду
+            setTimeout(() => {
+                loadStations();
+            }, 1000);
+            
         } catch (error) {
             showToast('❌ Ошибка отправки: ' + error.message, 'error');
         }
@@ -793,7 +814,7 @@
     });
 
     // ============================================================
-    // МОДАЛЬНОЕ ОКНО ПОДРОБНОЙ ИНФОРМАЦИИ (ИСПРАВЛЕНО)
+    // МОДАЛЬНОЕ ОКНО ПОДРОБНОЙ ИНФОРМАЦИИ
     // ============================================================
     async function openDetailModal(stationId) {
         currentDetailStationId = stationId;
@@ -803,7 +824,7 @@
         document.getElementById('detailStationName').textContent = '📍 ' + station.name;
         document.getElementById('detailStationAddress').textContent = station.address;
         
-        // Загружаем отчёты (исправлено: api вместо ani)
+        // Загружаем отчёты
         let reports = [];
         try {
             const response = await fetch(`/api/reports/${stationId}`);
