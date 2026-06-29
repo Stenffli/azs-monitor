@@ -14,6 +14,9 @@ app.use(express.static(path.join(__dirname, '../public')));
 const DB_PATH = path.join(__dirname, '../gas_stations.db');
 let db;
 
+// ============================================================
+// ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ
+// ============================================================
 function initDB() {
     const exists = fs.existsSync(DB_PATH);
     db = new sqlite3.Database(DB_PATH, (err) => {
@@ -78,25 +81,19 @@ function initDB() {
 initDB();
 
 // ============================================================
-// ПОЛУЧЕНИЕ ВСЕХ АЗС
+// ПОЛУЧЕНИЕ ВСЕХ АЗС (УПРОЩЁННАЯ ВЕРСИЯ)
 // ============================================================
 app.get('/api/gas-stations', (req, res) => {
-    db.all(`
-        SELECT s.*, 
-               GROUP_CONCAT(json_object('fuel_type', f.fuel_type, 'price', f.price, 'available', f.available)) as fuel_stock_json
-        FROM stations s
-        LEFT JOIN fuel_stock f ON s.id = f.station_id
-        GROUP BY s.id
-    `, (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        const stations = rows.map(row => {
-            const fuelStock = row.fuel_stock_json ? JSON.parse(`[${row.fuel_stock_json}]`) : [];
-            return {
-                ...row,
-                fuel_stock: [fuelStock],
-                fuel_stock_json: undefined
-            };
-        });
+    db.all('SELECT * FROM stations', (err, rows) => {
+        if (err) {
+            console.error('❌ Ошибка получения станций:', err);
+            return res.status(500).json({ error: err.message });
+        }
+        // Добавляем пустой fuel_stock для совместимости с фронтендом
+        const stations = rows.map(row => ({
+            ...row,
+            fuel_stock: [[]]
+        }));
         res.json(stations);
     });
 });
@@ -113,11 +110,11 @@ app.post('/api/report', (req, res) => {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [station_id, user_name || 'Аноним', report_type, fuel_type, price, queue_length, availability, tanker_active || 0, description || '', now], function(err) {
         if (err) {
-            console.error('Ошибка вставки отчёта:', err);
+            console.error('❌ Ошибка вставки отчёта:', err);
             return res.status(500).json({ error: err.message });
         }
 
-        // Обновляем очередь и бензовоз
+        // Обновляем основные поля станции
         let updates = ['last_update = ?'];
         let params = [now];
         if (queue_length !== undefined && queue_length !== null) {
@@ -131,48 +128,46 @@ app.post('/api/report', (req, res) => {
         if (updates.length > 1) {
             params.push(station_id);
             db.run(`UPDATE stations SET ${updates.join(', ')} WHERE id = ?`, params, (err) => {
-                if (err) console.error('Ошибка обновления stations:', err);
+                if (err) console.error('❌ Ошибка обновления stations:', err);
             });
         }
 
-        // ===== ОБРАБОТКА НАЛИЧИЯ ТОПЛИВА (ИСПРАВЛЕНО) =====
-        if (report_type === 'availability' && fuel_type && availability !== undefined) {
-            console.log(`📩 Обновление availability: station=${station_id}, fuel=${fuel_type}, available=${availability}`);
-            db.run(`
-                UPDATE fuel_stock SET available = ? 
-                WHERE station_id = ? AND fuel_type = ?
-            `, [availability, station_id, fuel_type], function(err) {
-                if (err) {
-                    console.error('Ошибка обновления fuel_stock:', err);
-                } else if (this.changes === 0) {
-                    // Если запись не обновилась — вставляем новую
-                    db.run(`
-                        INSERT INTO fuel_stock (station_id, fuel_type, price, available)
-                        VALUES (?, ?, ?, ?)
-                    `, [station_id, fuel_type, price || 0, availability]);
-                }
-            });
-        }
-        
-        // ===== ОБРАБОТКА ЦЕНЫ =====
-        if (report_type === 'price' && fuel_type && price !== undefined && price !== null) {
-            console.log(`📩 Обновление цены: station=${station_id}, fuel=${fuel_type}, price=${price}`);
-            db.run(`
-                UPDATE fuel_stock SET price = ? 
-                WHERE station_id = ? AND fuel_type = ?
-            `, [price, station_id, fuel_type], function(err) {
-                if (err) {
-                    console.error('Ошибка обновления цены:', err);
-                } else if (this.changes === 0) {
-                    db.run(`
-                        INSERT INTO fuel_stock (station_id, fuel_type, price, available)
-                        VALUES (?, ?, ?, ?)
-                    `, [station_id, fuel_type, price, 1]);
-                }
-            });
+        // Обновляем цену или наличие топлива
+        if (fuel_type) {
+            if (report_type === 'price' && price !== undefined && price !== null) {
+                db.run(`
+                    UPDATE fuel_stock SET price = ? 
+                    WHERE station_id = ? AND fuel_type = ?
+                `, [price, station_id, fuel_type], function(err) {
+                    if (err) {
+                        console.error('❌ Ошибка обновления цены:', err);
+                    } else if (this.changes === 0) {
+                        db.run(`
+                            INSERT INTO fuel_stock (station_id, fuel_type, price, available)
+                            VALUES (?, ?, ?, ?)
+                        `, [station_id, fuel_type, price, 1]);
+                    }
+                });
+            }
+            
+            if (report_type === 'availability' && availability !== undefined && availability !== null) {
+                db.run(`
+                    UPDATE fuel_stock SET available = ? 
+                    WHERE station_id = ? AND fuel_type = ?
+                `, [availability, station_id, fuel_type], function(err) {
+                    if (err) {
+                        console.error('❌ Ошибка обновления availability:', err);
+                    } else if (this.changes === 0) {
+                        db.run(`
+                            INSERT INTO fuel_stock (station_id, fuel_type, price, available)
+                            VALUES (?, ?, ?, ?)
+                        `, [station_id, fuel_type, 0, availability]);
+                    }
+                });
+            }
         }
 
-        res.json({ success: true, message: 'Отчёт отправлен! Спасибо!' });
+        res.json({ success: true, message: 'Отчёт отправлен!' });
     });
 });
 
@@ -188,7 +183,7 @@ app.get('/api/reports/:stationId', (req, res) => {
         LIMIT 50
     `, [stationId], (err, rows) => {
         if (err) {
-            console.error('Ошибка получения отчётов:', err);
+            console.error('❌ Ошибка получения отчётов:', err);
             return res.status(500).json({ error: err.message });
         }
         res.json(rows);
