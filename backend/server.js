@@ -147,7 +147,6 @@ app.post('/api/report', (req, res) => {
                 WHERE station_id = ? AND fuel_type = ?
             `, [availability, station_id, fuel_type], function(err) {
                 if (err && err.message && err.message.includes('no such table')) {
-                    // Если таблица пустая — добавляем запись
                     db.run(`
                         INSERT INTO fuel_stock (station_id, fuel_type, price, available)
                         VALUES (?, ?, ?, ?)
@@ -155,7 +154,6 @@ app.post('/api/report', (req, res) => {
                 } else if (err) {
                     console.error('Ошибка обновления fuel_stock:', err);
                 } else if (this.changes === 0) {
-                    // Если запись не обновилась (нет такого топлива) — добавляем
                     db.run(`
                         INSERT INTO fuel_stock (station_id, fuel_type, price, available)
                         VALUES (?, ?, ?, ?)
