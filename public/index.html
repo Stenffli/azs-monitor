@@ -572,7 +572,6 @@
         let fuelArray = [];
         if (typeof station.fuel_stock === 'string') {
             try {
-                // Парсим строку как JSON-массив
                 const parsed = JSON.parse(station.fuel_stock);
                 fuelArray = parsed.filter(f => f !== null);
             } catch (e) {
