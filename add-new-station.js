@@ -1,34 +1,30 @@
 const sqlite3 = require('sqlite3').verbose();
 const db = new sqlite3.Database('./gas_stations.db');
 
-const newStation = {
-  name: 'Лукойл (Пролетарская ул., 9/16)',
-  network: 'Лукойл',
-  address: 'Пролетарская ул., 9/16',
-  lat: 45.246920,
-  lon: 38.100739
-};
+// ===== НОВЫЕ АЗС =====
+const stations = [
+  ['Газпромнефть (Рисовое с/п)', 'Газпромнефть', 'Рисовое сельское поселение', 45.228316, 37.947956],
+  ['АГЗС (Анастасиевская)', 'АГЗС', 'Анастасиевское с/п, ст. Анастасиевская', 45.225126, 37.930215],
+  ['Роснефть (Анастасиевская, Красная ул., 1Г)', 'Роснефть', 'Красная ул., 1Г, ст. Анастасиевская', 45.222693, 37.924687],
+  ['Роснефть (Коржевский, Краснодарская ул., 48/1)', 'Роснефть', 'Краснодарская ул., 48/1, х. Коржевский', 45.200071, 37.727744],
+  ['Pnb (Коржевский, Краснодарская ул., 61)', 'Pnb', 'Краснодарская ул., 61, х. Коржевский', 45.195715, 37.706471],
+  ['Лукойл (Коржевский, Краснодарская ул., 152)', 'Лукойл', 'Краснодарская ул., 152, х. Коржевский', 45.195723, 37.702409]
+];
 
-db.run(`
-  INSERT OR IGNORE INTO gas_stations (name, network, address, latitude, longitude)
-  VALUES (?, ?, ?, ?, ?)
-`, [newStation.name, newStation.network, newStation.address, newStation.lat, newStation.lon], function(err) {
-  if (err) {
-    console.error('❌ Ошибка добавления:', err.message);
-  } else if (this.changes === 0) {
-    console.log('⚠️ АЗС уже существует');
-  } else {
-    console.log('✅ Добавлена АЗС:', newStation.name);
-    
-    // Добавляем топливо для новой АЗС
-    db.run(`
-      INSERT INTO fuel_stock (station_id, fuel_type, price, availability)
-      SELECT last_insert_rowid(), 'АИ-95', 75.85, 1
-      UNION ALL
-      SELECT last_insert_rowid(), 'АИ-92', 58.35, 1
-      UNION ALL
-      SELECT last_insert_rowid(), 'ДТ', 82.99, 1
-    `);
-  }
-  db.close();
+// ===== ДОБАВЛЯЕМ =====
+stations.forEach(s => {
+  db.run(`
+    INSERT OR IGNORE INTO gas_stations (name, network, address, latitude, longitude)
+    VALUES (?, ?, ?, ?, ?)
+  `, s, function(err) {
+    if (err) {
+      console.error('❌ Ошибка добавления:', err.message);
+    } else if (this.changes === 0) {
+      console.log('⚠️ Уже есть:', s[0]);
+    } else {
+      console.log('✅ Добавлена:', s[0]);
+    }
+  });
 });
+
+db.close();
