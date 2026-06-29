@@ -1,3 +1,17 @@
+const express = require('express');
+const sqlite3 = require('sqlite3').verbose();
+const cors = require('cors');
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+app.use(express.static('public'));
+
+const db = new sqlite3.Database('./gas_stations.db');
+
+// ============================================================
+// ВСЕ АЗС
+// ============================================================
 const STATIONS = [
   // ===== КРАСНОДАР =====
   { name: 'Лукойл (ул. Ленина, 1)', network: 'Лукойл', address: 'ул. Ленина, 1', lat: 44.7242, lon: 37.7698 },
@@ -33,3 +47,180 @@ const STATIONS = [
   { name: 'Pnb (Коржевский, Краснодарская ул., 61)', network: 'Pnb', address: 'Краснодарская ул., 61, х. Коржевский', lat: 45.195715, lon: 37.706471 },
   { name: 'Лукойл (Коржевский, Краснодарская ул., 152)', network: 'Лукойл', address: 'Краснодарская ул., 152, х. Коржевский', lat: 45.195723, lon: 37.702409 }
 ];
+
+// ============================================================
+// ИНИЦИАЛИЗАЦИЯ БД
+// ============================================================
+async function initDB() {
+  db.serialize(() => {
+    db.run(`CREATE TABLE IF NOT EXISTS gas_stations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT, network TEXT, address TEXT,
+      latitude REAL, longitude REAL,
+      queue_length INTEGER DEFAULT 0,
+      tanker_active INTEGER DEFAULT 0,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS fuel_stock (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      station_id INTEGER,
+      fuel_type TEXT,
+      price REAL,
+      availability INTEGER DEFAULT 1,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(station_id, fuel_type)
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS user_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      station_id INTEGER,
+      user_name TEXT,
+      report_type TEXT,
+      fuel_type TEXT,
+      price REAL,
+      queue_length INTEGER,
+      availability INTEGER,
+      tanker_active INTEGER DEFAULT 0,
+      description TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      verified INTEGER DEFAULT 0,
+      FOREIGN KEY (station_id) REFERENCES gas_stations(id)
+    )`);
+
+    db.get("SELECT COUNT(*) as count FROM gas_stations", (err, row) => {
+      if (row.count === 0) {
+        const stmt = db.prepare(`INSERT INTO gas_stations (name, network, address, latitude, longitude) VALUES (?, ?, ?, ?, ?)`);
+        STATIONS.forEach(s => stmt.run(s.name, s.network, s.address, s.lat, s.lon));
+        stmt.finalize();
+
+        db.run(`INSERT INTO fuel_stock (station_id, fuel_type, price, availability) SELECT id, 'АИ-95', 75.85, 1 FROM gas_stations`);
+        db.run(`INSERT INTO fuel_stock (station_id, fuel_type, price, availability) SELECT id, 'АИ-92', 58.35, 1 FROM gas_stations`);
+        db.run(`INSERT INTO fuel_stock (station_id, fuel_type, price, availability) SELECT id, 'ДТ', 82.99, 1 FROM gas_stations`);
+
+        console.log(`✅ Добавлено ${STATIONS.length} АЗС и топливо`);
+      } else {
+        console.log(`📊 В базе уже есть ${row.count} АЗС`);
+      }
+    });
+  });
+}
+
+// ============================================================
+// API
+// ============================================================
+app.get('/api/gas-stations', (req, res) => {
+  db.all(`
+    SELECT gs.*, 
+           json_group_array(
+               json_object('fuel_type', fs.fuel_type, 'price', fs.price, 'availability', fs.availability)
+           ) as fuel_stock
+    FROM gas_stations gs
+    LEFT JOIN fuel_stock fs ON gs.id = fs.station_id
+    GROUP BY gs.id
+  `, (err, rows) => {
+    if (err) {
+      console.error('❌ Ошибка получения станций:', err);
+      return res.status(500).json({ error: err.message });
+    }
+    const stations = rows.map(row => {
+      let fuelStock = [];
+      if (row.fuel_stock) {
+        try {
+          fuelStock = JSON.parse(row.fuel_stock);
+          fuelStock = fuelStock.filter(f => f !== null);
+        } catch (e) {
+          fuelStock = [];
+        }
+      }
+      return {
+        ...row,
+        fuel_stock: fuelStock,
+        fuel_stock_raw: undefined
+      };
+    });
+    res.json(stations);
+  });
+});
+
+app.post('/api/report', (req, res) => {
+  const {
+    station_id, user_name, report_type, fuel_type,
+    price, queue_length, availability, tanker_active, description
+  } = req.body;
+
+  if (!station_id || !report_type) {
+    return res.status(400).json({ error: 'station_id и report_type обязательны' });
+  }
+
+  db.run(`
+    INSERT INTO user_reports (
+      station_id, user_name, report_type, fuel_type,
+      price, queue_length, availability, tanker_active, description
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `, [station_id, user_name || 'Аноним', report_type, fuel_type || null,
+    price || null, queue_length || null, availability || null, tanker_active || 0, description || null
+  ], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+
+    if (report_type === 'price' && price && fuel_type) {
+      db.run(`
+        INSERT INTO fuel_stock (station_id, fuel_type, price, availability)
+        VALUES (?, ?, ?, 1)
+        ON CONFLICT(station_id, fuel_type)
+        DO UPDATE SET price = ?, updated_at = CURRENT_TIMESTAMP
+      `, [station_id, fuel_type, price, price]);
+    }
+
+    if (report_type === 'availability' && availability !== undefined && fuel_type) {
+      db.run(`
+        INSERT INTO fuel_stock (station_id, fuel_type, price, availability)
+        VALUES (?, ?, (SELECT price FROM fuel_stock WHERE station_id = ? AND fuel_type = ?), ?)
+        ON CONFLICT(station_id, fuel_type)
+        DO UPDATE SET availability = ?, updated_at = CURRENT_TIMESTAMP
+      `, [station_id, fuel_type, station_id, fuel_type, availability, availability]);
+    }
+
+    if (report_type === 'queue' && queue_length !== undefined) {
+      db.run(`UPDATE gas_stations SET queue_length = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [queue_length, station_id]);
+    }
+
+    if (report_type === 'tanker') {
+      db.run(`UPDATE gas_stations SET tanker_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [tanker_active || 0, station_id]);
+    }
+
+    db.run(`UPDATE gas_stations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [station_id]);
+
+    res.json({ success: true, id: this.lastID, message: 'Спасибо! Ваш отчёт отправлен.' });
+  });
+});
+
+// ============================================================
+// МАРШРУТ ДЛЯ ПОЛУЧЕНИЯ ОТЧЁТОВ (КОММЕНТАРИИ + ГРАФИКИ)
+// ============================================================
+app.get('/api/reports/:stationId', (req, res) => {
+  const { stationId } = req.params;
+  db.all(
+    `SELECT * FROM user_reports 
+     WHERE station_id = ? 
+     ORDER BY created_at DESC 
+     LIMIT 50`,
+    [stationId],
+    (err, rows) => {
+      if (err) {
+        console.error('❌ Ошибка получения отчётов:', err);
+        return res.status(500).json({ error: err.message });
+      }
+      res.json(rows);
+    }
+  );
+});
+
+// ============================================================
+// ЗАПУСК
+// ============================================================
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, async () => {
+  console.log(`🚀 Сервер запущен на порту ${PORT}`);
+  await initDB();
+});
