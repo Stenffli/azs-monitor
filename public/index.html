@@ -128,10 +128,6 @@
         .action-btn.report:hover { background: #005fcc; }
         .action-btn.detail { background: #8b5cf6; color: white; }
         .action-btn.detail:hover { background: #7c3aed; }
-        .action-btn.tanker-start { background: #f59e0b; color: white; }
-        .action-btn.tanker-start:hover { background: #d97706; }
-        .action-btn.tanker-stop { background: #ef4444; color: white; }
-        .action-btn.tanker-stop:hover { background: #dc2626; }
 
         .tanker-badge {
             display: inline-block;
@@ -538,6 +534,9 @@
     async function loadReports(stationId) {
         try {
             const response = await fetch(`/api/reports/${stationId}`);
+            if (!response.ok) {
+                throw new Error('Ошибка загрузки отчётов');
+            }
             const data = await response.json();
             reports = data;
             return data;
@@ -794,7 +793,7 @@
     });
 
     // ============================================================
-    // МОДАЛЬНОЕ ОКНО ПОДРОБНОЙ ИНФОРМАЦИИ
+    // МОДАЛЬНОЕ ОКНО ПОДРОБНОЙ ИНФОРМАЦИИ (ИСПРАВЛЕНО)
     // ============================================================
     async function openDetailModal(stationId) {
         currentDetailStationId = stationId;
@@ -804,8 +803,18 @@
         document.getElementById('detailStationName').textContent = '📍 ' + station.name;
         document.getElementById('detailStationAddress').textContent = station.address;
         
-        // Загружаем отчёты
-        const reports = await loadReports(stationId);
+        // Загружаем отчёты (исправлено: api вместо ani)
+        let reports = [];
+        try {
+            const response = await fetch(`/api/reports/${stationId}`);
+            if (response.ok) {
+                reports = await response.json();
+            } else {
+                console.warn('Маршрут /api/reports вернул ошибку:', response.status);
+            }
+        } catch (e) {
+            console.warn('Ошибка загрузки комментариев:', e);
+        }
         
         // Вкладки
         document.querySelectorAll('#detailModal .tabs button').forEach(btn => {
@@ -850,7 +859,6 @@
 
     function renderChart(reports) {
         const container = document.getElementById('chartBars');
-        // Группируем по часам (последние 24 часа)
         const now = new Date();
         const hours = {};
         for (let i = 0; i < 24; i++) {
