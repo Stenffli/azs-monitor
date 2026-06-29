@@ -1,179 +1,170 @@
 const express = require('express');
-const cors = require('cors');
-const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
-const fs = require('fs');
+const cors = require('cors');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
-
 app.use(cors());
-app.use(express.json({ limit: '50mb' }));
-app.use(express.static(path.join(__dirname, '../public')));
+app.use(express.json());
+app.use(express.static('public'));
 
-const DB_PATH = path.join(__dirname, 'gas_stations.db');
-let db;
+const db = new sqlite3.Database('./gas_stations.db');
 
-// Твои заправки
-const MY_STATIONS = [
-  ['Роснефть', 'Красная ул., 141', 45.248870, 38.098440, 'Роснефть'],
-  ['Роснефть', 'Маевское ш., 25', 45.238155, 38.150282, 'Роснефть'],
-  ['Панда', 'Рыночная ул., 295', 45.273980, 38.094515, 'Панда'],
-  ['Газпромнефть', 'Пролетарская ул., 1Д', 45.233658, 38.109846, 'Газпромнефть'],
-  ['Rusoil', 'ул. Дружбы Народов, 65/1', 45.221889, 38.109681, 'Rusoil'],
-  ['Роснефть', 'Артиллерийский пр., 1', 45.228900, 38.113922, 'Роснефть'],
-  ['Лукойл', 'Славянск-на-Кубани', 45.212501, 38.119253, 'Лукойл'],
-  ['Rusoil', 'Маевское сельское поселение', 45.217346, 38.167217, 'Rusoil'],
-  ['Ника', 'ул. Дружбы Народов, 5', 45.236255, 38.141647, 'Ника']
+// ============================================================
+// ВСЕ АЗС
+// ============================================================
+const STATIONS = [
+  { name: 'Лукойл (ул. Ленина, 1)', network: 'Лукойл', address: 'ул. Ленина, 1', lat: 44.7242, lon: 37.7698 },
+  { name: 'Лукойл (пр. Ленина, 2)', network: 'Лукойл', address: 'пр. Ленина, 2', lat: 44.7267, lon: 37.7723 },
+  { name: 'Лукойл (ул. Советов, 15)', network: 'Лукойл', address: 'ул. Советов, 15', lat: 44.7198, lon: 37.7653 },
+  { name: 'Лукойл (ул. Энгельса, 33)', network: 'Лукойл', address: 'ул. Энгельса, 33', lat: 44.7258, lon: 37.7603 },
+  { name: 'Роснефть (ул. Кутузова, 8)', network: 'Роснефть', address: 'ул. Кутузова, 8', lat: 44.7278, lon: 37.7623 },
+  { name: 'Роснефть (ул. Краснодарская, 2)', network: 'Роснефть', address: 'ул. Краснодарская, 2', lat: 44.7148, lon: 37.7803 },
+  { name: 'Газпромнефть (ул. Ленина, 8)', network: 'Газпромнефть', address: 'ул. Ленина, 8', lat: 44.7248, lon: 37.7713 },
+  { name: 'Газпромнефть (ул. Советов, 22)', network: 'Газпромнефть', address: 'ул. Советов, 22', lat: 44.7178, lon: 37.7683 },
+  { name: 'Shell (ул. Мира, 12)', network: 'Shell', address: 'ул. Мира, 12', lat: 44.7238, lon: 37.7763 },
+  { name: 'Shell (ул. Толстого, 25)', network: 'Shell', address: 'ул. Толстого, 25', lat: 44.7223, lon: 37.7693 },
+  { name: 'BP (ул. Ленина, 45)', network: 'BP', address: 'ул. Ленина, 45', lat: 44.7283, lon: 37.7703 },
+  { name: 'Транснефть (ул. Молодежная, 3)', network: 'Транснефть', address: 'ул. Молодежная, 3', lat: 44.7208, lon: 37.7733 },
+
+  { name: 'Роснефть (Красная ул., 141)', network: 'Роснефть', address: 'Красная ул., 141', lat: 45.248870, lon: 38.098440 },
+  { name: 'Роснефть (Маевское ш., 25)', network: 'Роснефть', address: 'Маевское ш., 25', lat: 45.238155, lon: 38.150282 },
+  { name: 'Панда (Рыночная ул., 295)', network: 'Панда', address: 'Рыночная ул., 295', lat: 45.273980, lon: 38.094515 },
+  { name: 'Газпромнефть (Пролетарская ул., 1Д)', network: 'Газпромнефть', address: 'Пролетарская ул., 1Д', lat: 45.233658, lon: 38.109846 },
+  { name: 'Rusoil (ул. Дружбы Народов, 65/1)', network: 'Rusoil', address: 'ул. Дружбы Народов, 65/1', lat: 45.221889, lon: 38.109681 },
+  { name: 'Роснефть (Артиллерийский пр., 1)', network: 'Роснефть', address: 'Артиллерийский пр., 1', lat: 45.228900, lon: 38.113922 },
+  { name: 'Лукойл (Славянск-на-Кубани)', network: 'Лукойл', address: 'Славянск-на-Кубани', lat: 45.212501, lon: 38.119253 },
+  { name: 'Rusoil (Маевское с/п)', network: 'Rusoil', address: 'Маевское с/п', lat: 45.217346, lon: 38.167217 },
+  { name: 'Ника (ул. Дружбы Народов, 5)', network: 'Ника', address: 'ул. Дружбы Народов, 5', lat: 45.236255, lon: 38.141647 },
+
+  { name: 'Лукойл (А-289, Прикубанское с/п)', network: 'Лукойл', address: 'А-289, Прикубанское с/п', lat: 45.211699, lon: 38.116785 },
+  { name: 'Rusoil (Строительная ул., 34)', network: 'Rusoil', address: 'Строительная ул., 34', lat: 45.286945, lon: 38.096787 },
+  { name: 'АГЗС (Прибрежное с/п)', network: 'АГЗС', address: 'Прибрежное с/п, Славянский р-н', lat: 45.286423, lon: 38.097739 }
 ];
 
-// Инициализация базы
-function initDB() {
-  const exists = fs.existsSync(DB_PATH);
-  db = new sqlite3.Database(DB_PATH, (err) => {
-    if (err) {
-      console.error('❌ Ошибка подключения к БД:', err.message);
-      return;
-    }
-    console.log('✅ База данных подключена');
-
-    // Проверяем, есть ли таблица stations
-    db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='stations'", (err, row) => {
-      if (err) {
-        console.error('❌ Ошибка проверки таблиц:', err.message);
-        return;
-      }
-
-      if (!row) {
-        console.log('⚠️ Таблицы не найдены, создаём...');
-        createTablesAndAddStations();
-      } else {
-        // Проверяем, сколько записей в таблице
-        db.get('SELECT COUNT(*) as count FROM stations', (err, countRow) => {
-          if (err) {
-            console.error('❌ Ошибка подсчёта станций:', err.message);
-            return;
-          }
-          console.log(`📊 Найдено станций: ${countRow.count}`);
-          
-          // Если записей меньше, чем должно быть — добавляем
-          if (countRow.count < MY_STATIONS.length) {
-            console.log('⚠️ Добавляем недостающие заправки...');
-            addMyStations();
-          } else {
-            console.log('✅ Все заправки уже есть');
-          }
-        });
-      }
-    });
-  });
-}
-
-function createTablesAndAddStations() {
-  db.exec(`
-    CREATE TABLE stations (
+// ============================================================
+// ИНИЦИАЛИЗАЦИЯ БД (с авто-добавлением топлива)
+// ============================================================
+async function initDB() {
+  db.serialize(() => {
+    db.run(`CREATE TABLE IF NOT EXISTS gas_stations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT,
-      address TEXT,
-      latitude REAL,
-      longitude REAL,
-      network TEXT,
+      name TEXT, network TEXT, address TEXT,
+      latitude REAL, longitude REAL,
       queue_length INTEGER DEFAULT 0,
       tanker_active INTEGER DEFAULT 0,
-      last_update TEXT
-    );
-    CREATE TABLE reports (
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS fuel_stock (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      station_id INTEGER,
+      fuel_type TEXT,
+      price REAL,
+      availability INTEGER DEFAULT 1,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(station_id, fuel_type)
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS user_reports (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       station_id INTEGER,
       user_name TEXT,
       report_type TEXT,
+      fuel_type TEXT,
+      price REAL,
       queue_length INTEGER,
-      tanker_active INTEGER,
+      availability INTEGER,
+      tanker_active INTEGER DEFAULT 0,
       description TEXT,
-      created_at TEXT,
-      FOREIGN KEY(station_id) REFERENCES stations(id)
-    );
-  `, (err) => {
-    if (err) {
-      console.error('❌ Ошибка создания таблиц:', err.message);
-    } else {
-      console.log('✅ Таблицы созданы');
-      addMyStations();
-    }
-  });
-}
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      verified INTEGER DEFAULT 0,
+      FOREIGN KEY (station_id) REFERENCES gas_stations(id)
+    )`);
 
-function addMyStations() {
-  const stmt = db.prepare('INSERT OR IGNORE INTO stations (name, address, latitude, longitude, network) VALUES (?, ?, ?, ?, ?)');
-  let added = 0;
+    db.get("SELECT COUNT(*) as count FROM gas_stations", (err, row) => {
+      if (row.count === 0) {
+        const stmt = db.prepare(`INSERT INTO gas_stations (name, network, address, latitude, longitude) VALUES (?, ?, ?, ?, ?)`);
+        STATIONS.forEach(s => stmt.run(s.name, s.network, s.address, s.lat, s.lon));
+        stmt.finalize();
 
-  MY_STATIONS.forEach(s => {
-    stmt.run(s, (err) => {
-      if (err) {
-        console.error('❌ Ошибка вставки:', err.message);
+        // Автоматически добавляем топливо для всех новых АЗС
+        db.run(`INSERT INTO fuel_stock (station_id, fuel_type, price) SELECT id, 'АИ-95', 75.85 FROM gas_stations`);
+        db.run(`INSERT INTO fuel_stock (station_id, fuel_type, price) SELECT id, 'АИ-92', 58.35 FROM gas_stations`);
+        db.run(`INSERT INTO fuel_stock (station_id, fuel_type, price) SELECT id, 'ДТ', 82.99 FROM gas_stations`);
+
+        console.log(`✅ Добавлено ${STATIONS.length} АЗС и топливо`);
       } else {
-        added++;
-        console.log(`✅ Добавлена АЗС: ${s[0]}`);
+        console.log(`📊 В базе уже есть ${row.count} АЗС`);
       }
     });
   });
-
-  stmt.finalize(() => {
-    console.log(`✅ ГОТОВО! Добавлено ${added} заправок.`);
-  });
 }
 
-initDB();
-
 // ============================================================
-// МАРШРУТЫ
+// API
 // ============================================================
-
-// Просто отдаём все станции
 app.get('/api/gas-stations', (req, res) => {
-  db.all('SELECT * FROM stations', (err, rows) => {
-    if (err) {
-      console.error('❌ Ошибка получения станций:', err);
-      return res.status(500).json({ error: err.message });
-    }
-    res.json(rows);
+  db.all(`
+    SELECT gs.*, json_group_array(
+      json_object('fuel_type', fs.fuel_type, 'price', fs.price, 'availability', fs.availability)
+    ) as fuel_stock
+    FROM gas_stations gs
+    LEFT JOIN fuel_stock fs ON gs.id = fs.station_id
+    GROUP BY gs.id
+  `, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows.map(row => ({ ...row, fuel_stock: JSON.parse(`[${row.fuel_stock}]`) })));
   });
 });
 
-// Отправка отчёта (упрощённо)
 app.post('/api/report', (req, res) => {
-  const { station_id, user_name, report_type, queue_length, tanker_active, description } = req.body;
-  const now = new Date().toISOString();
+  const {
+    station_id, user_name, report_type, fuel_type,
+    price, queue_length, availability, tanker_active, description
+  } = req.body;
+
+  if (!station_id || !report_type) {
+    return res.status(400).json({ error: 'station_id и report_type обязательны' });
+  }
 
   db.run(`
-    INSERT INTO reports (station_id, user_name, report_type, queue_length, tanker_active, description, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `, [station_id, user_name || 'Аноним', report_type, queue_length, tanker_active || 0, description || '', now], function(err) {
-    if (err) {
-      console.error('❌ Ошибка вставки отчёта:', err);
-      return res.status(500).json({ error: err.message });
+    INSERT INTO user_reports (
+      station_id, user_name, report_type, fuel_type,
+      price, queue_length, availability, tanker_active, description
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `, [station_id, user_name || 'Аноним', report_type, fuel_type || null,
+    price || null, queue_length || null, availability || null, tanker_active || 0, description || null
+  ], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+
+    if (report_type === 'price' && price && fuel_type) {
+      db.run(`
+        INSERT INTO fuel_stock (station_id, fuel_type, price, availability)
+        VALUES (?, ?, ?, 1)
+        ON CONFLICT(station_id, fuel_type)
+        DO UPDATE SET price = ?, updated_at = CURRENT_TIMESTAMP
+      `, [station_id, fuel_type, price, price]);
     }
 
-    let updates = ['last_update = ?'];
-    let params = [now];
-    if (queue_length !== undefined && queue_length !== null) {
-      updates.push('queue_length = ?');
-      params.push(queue_length);
-    }
-    if (tanker_active !== undefined && tanker_active !== null) {
-      updates.push('tanker_active = ?');
-      params.push(tanker_active);
-    }
-    if (updates.length > 1) {
-      params.push(station_id);
-      db.run(`UPDATE stations SET ${updates.join(', ')} WHERE id = ?`, params);
+    if (report_type === 'queue' && queue_length !== undefined) {
+      db.run(`UPDATE gas_stations SET queue_length = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [queue_length, station_id]);
     }
 
-    res.json({ success: true, message: 'Отчёт отправлен!' });
+    if (report_type === 'tanker') {
+      db.run(`UPDATE gas_stations SET tanker_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [tanker_active || 0, station_id]);
+    }
+
+    db.run(`UPDATE gas_stations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [station_id]);
+
+    res.json({ success: true, id: this.lastID, message: 'Спасибо! Ваш отчёт отправлен на модерацию.' });
   });
 });
 
-// Запуск
-app.listen(PORT, () => {
-  console.log(`✅ Сервер запущен на порту ${PORT}`);
+// ============================================================
+// ЗАПУСК
+// ============================================================
+const PORT = 3001;
+app.listen(PORT, async () => {
+  console.log(`🚀 Сервер запущен: http://localhost:${PORT}`);
+  await initDB();
 });
