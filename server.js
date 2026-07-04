@@ -17,8 +17,8 @@ let db;
 // ============================================================
 // GOOGLE SHEETS НАСТРОЙКА
 // ============================================================
-// Ссылка на твою опубликованную таблицу (для чтения)
-const GOOGLE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1Fw2_3qG9Hqb2tfP9bsDG92Uc_0FfiQBJRu3IhS1IbU4/export?format=csv';
+// Ссылка на твою опубликованную таблицу в формате CSV
+const GOOGLE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTgiGy6AEKojh_qSlCByPohuCAD_ZBnM0bWP8GC-DVthKmIY9XnVhvbvkOCabsOTHtc5YZOK2bmtc3P/pub?output=csv';
 
 // Ссылка на Google Apps Script (для записи)
 const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbziSMRaUVyCuVuM9J7qxNTcoqXNQriu4n8nXb7IXBzw59HiyxR1dZDoIAy6zQdKHyv0/exec';
@@ -28,11 +28,15 @@ const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbziSMRaUVyCuV
 // ============================================================
 async function loadPricesFromGoogle() {
     try {
+        console.log('📥 Загружаю цены из Google Таблицы...');
         const response = await fetch(GOOGLE_SHEET_URL);
-        if (!response.ok) throw new Error('Не удалось загрузить таблицу');
+        if (!response.ok) throw new Error(`Ошибка HTTP: ${response.status}`);
         const csv = await response.text();
         const lines = csv.split('\n').filter(line => line.trim() !== '');
-        if (lines.length < 2) return [];
+        if (lines.length < 2) {
+            console.log('⚠️ Таблица пуста');
+            return [];
+        }
 
         const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
         const data = lines.slice(1).map(line => {
@@ -41,6 +45,7 @@ async function loadPricesFromGoogle() {
             headers.forEach((h, i) => { obj[h] = values[i] || ''; });
             return obj;
         });
+        console.log(`📊 Загружено ${data.length} записей из Google`);
         return data;
     } catch (error) {
         console.error('❌ Ошибка загрузки цен из Google:', error.message);
@@ -85,7 +90,7 @@ function updatePricesFromGoogle(prices) {
         const fuelType = p.fuel_type;
         const price = parseFloat(p.price) || 0;
         const availability = parseInt(p.availability) || 1;
-        if (stationId && fuelType) {
+        if (stationId && fuelType && price > 0) {
             stmt.run(stationId, fuelType, price, availability);
             count++;
         }
@@ -190,10 +195,13 @@ function initDB() {
                 addDefaultStations();
             } else {
                 console.log(`📊 В базе уже есть ${row.count} АЗС`);
-                // Загружаем цены из Google при запуске
+                // ===== ЗАГРУЖАЕМ ЦЕНЫ ИЗ GOOGLE =====
                 loadPricesFromGoogle().then(prices => {
                     if (prices.length > 0) {
                         updatePricesFromGoogle(prices);
+                        console.log('✅ Цены успешно загружены из Google Таблицы');
+                    } else {
+                        console.log('⚠️ Google таблица пуста, оставляем текущие цены');
                     }
                 });
             }
@@ -210,16 +218,17 @@ function addDefaultStations() {
     stmt.finalize();
     console.log(`✅ Добавлено ${STATIONS.length} АЗС`);
 
-    // Загружаем цены из Google
+    // Дефолтные цены
+    db.run(`INSERT OR IGNORE INTO fuel_stock (station_id, fuel_type, price, availability) SELECT id, 'АИ-95', 75.85, 1 FROM gas_stations`);
+    db.run(`INSERT OR IGNORE INTO fuel_stock (station_id, fuel_type, price, availability) SELECT id, 'АИ-92', 58.35, 1 FROM gas_stations`);
+    db.run(`INSERT OR IGNORE INTO fuel_stock (station_id, fuel_type, price, availability) SELECT id, 'ДТ', 82.99, 1 FROM gas_stations`);
+    console.log(`✅ Добавлены дефолтные цены`);
+
+    // Пытаемся загрузить из Google (если есть)
     loadPricesFromGoogle().then(prices => {
         if (prices.length > 0) {
             updatePricesFromGoogle(prices);
-        } else {
-            // Если Google таблица пуста — ставим дефолтные цены
-            db.run(`INSERT OR IGNORE INTO fuel_stock (station_id, fuel_type, price, availability) SELECT id, 'АИ-95', 75.85, 1 FROM gas_stations`);
-            db.run(`INSERT OR IGNORE INTO fuel_stock (station_id, fuel_type, price, availability) SELECT id, 'АИ-92', 58.35, 1 FROM gas_stations`);
-            db.run(`INSERT OR IGNORE INTO fuel_stock (station_id, fuel_type, price, availability) SELECT id, 'ДТ', 82.99, 1 FROM gas_stations`);
-            console.log(`✅ Добавлены дефолтные цены`);
+            console.log('✅ Цены из Google загружены поверх дефолтных');
         }
     });
 }
@@ -280,7 +289,6 @@ app.post('/api/report', (req, res) => {
                 VALUES (?, ?, ?, 1)
             `, [station_id, fuel_type, price]);
 
-            // СОХРАНЯЕМ В GOOGLE ТАБЛИЦУ
             savePriceToGoogle(station_id, fuel_type, price, 1);
         }
 
@@ -290,7 +298,6 @@ app.post('/api/report', (req, res) => {
                 VALUES (?, ?, (SELECT price FROM fuel_stock WHERE station_id = ? AND fuel_type = ?), ?)
             `, [station_id, fuel_type, station_id, fuel_type, availability]);
 
-            // СОХРАНЯЕМ В GOOGLE ТАБЛИЦУ
             const currentPrice = price || 0;
             savePriceToGoogle(station_id, fuel_type, currentPrice, availability);
         }
