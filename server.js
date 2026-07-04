@@ -17,32 +17,67 @@ let db;
 // ============================================================
 // GOOGLE SHEETS НАСТРОЙКА
 // ============================================================
+// Ссылка на твою опубликованную таблицу в формате CSV
 const GOOGLE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTgiGy6AEKojh_qSlCByPohuCAD_ZBnM0bWP8GC-DVthKmIY9XnVhvbvkOCabsOTHtc5YZOK2bmtc3P/pub?output=csv';
+
+// Ссылка на Google Apps Script (для записи)
 const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbziSMRaUVyCuVuM9J7qxNTcoqXNQriu4n8nXb7IXBzw59HiyxR1dZDoIAy6zQdKHyv0/exec';
 
 // ============================================================
-// ЧТЕНИЕ ЦЕН ИЗ GOOGLE ТАБЛИЦЫ
+// ЧТЕНИЕ ЦЕН ИЗ GOOGLE ТАБЛИЦЫ (С ПРОВЕРКАМИ)
 // ============================================================
 async function loadPricesFromGoogle() {
     try {
         console.log('📥 Загружаю цены из Google Таблицы...');
+        console.log(`🔗 URL: ${GOOGLE_SHEET_URL}`);
+        
         const response = await fetch(GOOGLE_SHEET_URL);
-        if (!response.ok) throw new Error(`Ошибка HTTP: ${response.status}`);
+        if (!response.ok) {
+            throw new Error(`Ошибка HTTP: ${response.status} ${response.statusText}`);
+        }
+        
         const csv = await response.text();
+        console.log(`📄 Получено ${csv.length} символов`);
+        
         const lines = csv.split('\n').filter(line => line.trim() !== '');
+        console.log(`📄 Количество строк: ${lines.length}`);
+        
         if (lines.length < 2) {
-            console.log('⚠️ Таблица пуста');
+            console.log('⚠️ Таблица пуста или содержит только заголовки');
             return [];
         }
 
+        // Проверяем заголовки
         const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+        console.log(`📋 Заголовки: ${headers.join(', ')}`);
+        
+        // Проверяем, что есть нужные колонки
+        const requiredHeaders = ['station_id', 'fuel_type', 'price', 'availability'];
+        const missingHeaders = requiredHeaders.filter(h => !headers.includes(h));
+        if (missingHeaders.length > 0) {
+            console.error(`❌ Отсутствуют колонки: ${missingHeaders.join(', ')}`);
+            return [];
+        }
+
         const data = lines.slice(1).map(line => {
             const values = line.split(',').map(v => v.trim().replace(/"/g, ''));
             const obj = {};
-            headers.forEach((h, i) => { obj[h] = values[i] || ''; });
+            headers.forEach((h, i) => { 
+                obj[h] = values[i] || ''; 
+            });
             return obj;
         });
+        
         console.log(`📊 Загружено ${data.length} записей из Google`);
+        
+        // Показываем первые 3 записи для проверки
+        if (data.length > 0) {
+            console.log('📋 Пример данных:');
+            data.slice(0, 3).forEach((row, i) => {
+                console.log(`  ${i+1}. station_id=${row.station_id}, fuel_type=${row.fuel_type}, price=${row.price}, availability=${row.availability}`);
+            });
+        }
+        
         return data;
     } catch (error) {
         console.error('❌ Ошибка загрузки цен из Google:', error.message);
@@ -55,6 +90,7 @@ async function loadPricesFromGoogle() {
 // ============================================================
 async function savePriceToGoogle(stationId, fuelType, price, availability) {
     try {
+        console.log(`📤 Отправка в Google: station=${stationId}, fuel=${fuelType}, price=${price}`);
         const response = await fetch(GOOGLE_SCRIPT_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -73,27 +109,39 @@ async function savePriceToGoogle(stationId, fuelType, price, availability) {
 }
 
 // ============================================================
-// ОБНОВЛЕНИЕ ЦЕН В БАЗЕ ИЗ GOOGLE
+// ОБНОВЛЕНИЕ ЦЕН В БАЗЕ ИЗ GOOGLE (С ПРОВЕРКАМИ)
 // ============================================================
 function updatePricesFromGoogle(prices) {
+    console.log(`🔄 Обновление ${prices.length} цен в базе...`);
+    
     const stmt = db.prepare(`
         INSERT OR REPLACE INTO fuel_stock (station_id, fuel_type, price, availability)
         VALUES (?, ?, ?, ?)
     `);
 
     let count = 0;
+    let skipped = 0;
+    
     prices.forEach(p => {
         const stationId = parseInt(p.station_id);
         const fuelType = p.fuel_type;
         const price = parseFloat(p.price) || 0;
         const availability = parseInt(p.availability) || 1;
+        
+        // Логируем каждую запись
+        console.log(`  Проверка: station=${stationId}, fuel=${fuelType}, price=${price}, avail=${availability}`);
+        
         if (stationId && fuelType && price > 0) {
             stmt.run(stationId, fuelType, price, availability);
             count++;
+        } else {
+            skipped++;
+            console.log(`  ⚠️ Пропущена: station=${stationId}, fuel=${fuelType}, price=${price} (причина: ${!stationId ? 'нет ID' : !fuelType ? 'нет топлива' : price <= 0 ? 'цена = 0' : 'неизвестно'})`);
         }
     });
+    
     stmt.finalize();
-    console.log(`✅ Загружено ${count} цен из Google Таблицы`);
+    console.log(`✅ Загружено ${count} цен из Google Таблицы (${skipped} пропущено)`);
 }
 
 // ============================================================
