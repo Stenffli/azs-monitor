@@ -17,10 +17,7 @@ let db;
 // ============================================================
 // GOOGLE SHEETS НАСТРОЙКА
 // ============================================================
-// Ссылка на твою опубликованную таблицу в формате CSV
 const GOOGLE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTgiGy6AEKojh_qSlCByPohuCAD_ZBnM0bWP8GC-DVthKmIY9XnVhvbvkOCabsOTHtc5YZOK2bmtc3P/pub?output=csv';
-
-// Ссылка на Google Apps Script (для записи)
 const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbziSMRaUVyCuVuM9J7qxNTcoqXNQriu4n8nXb7IXBzw59HiyxR1dZDoIAy6zQdKHyv0/exec';
 
 // ============================================================
@@ -195,7 +192,7 @@ function initDB() {
                 addDefaultStations();
             } else {
                 console.log(`📊 В базе уже есть ${row.count} АЗС`);
-                // ===== ЗАГРУЖАЕМ ЦЕНЫ ИЗ GOOGLE =====
+                // ===== ЗАГРУЖАЕМ ЦЕНЫ ИЗ GOOGLE ПРИ КАЖДОМ ЗАПУСКЕ =====
                 loadPricesFromGoogle().then(prices => {
                     if (prices.length > 0) {
                         updatePricesFromGoogle(prices);
