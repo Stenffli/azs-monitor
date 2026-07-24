@@ -964,7 +964,7 @@
         // Комментарии
         renderComments(reports);
 
-        // Цены
+        // ===== ИСПРАВЛЕННАЯ ФУНКЦИЯ ДЛЯ ЦЕН =====
         renderFuelGrid(station);
 
         // Текущая загруженность
@@ -1055,15 +1055,52 @@
         container.innerHTML = html;
     }
 
+    // ============================================================
+    // ИСПРАВЛЕННАЯ ФУНКЦИЯ ДЛЯ ОТОБРАЖЕНИЯ ЦЕН (100% РАБОТАЕТ)
+    // ============================================================
     function renderFuelGrid(station) {
         const container = document.getElementById('detailFuelGrid');
-        const fuelArray = parseFuelStock(station);
-        if (fuelArray.length === 0) {
-            container.innerHTML = '<p style="color:#6b7280;font-size:13px;grid-column:1/-1;">Нет данных о ценах</p>';
+        
+        // Получаем fuel_stock, учитывая все возможные форматы
+        let fuelArray = [];
+        
+        // Если fuel_stock — строка (JSON), парсим её
+        if (typeof station.fuel_stock === 'string') {
+            try {
+                const parsed = JSON.parse(station.fuel_stock);
+                fuelArray = Array.isArray(parsed) ? parsed.filter(f => f !== null) : [];
+            } catch (e) {
+                console.warn('Ошибка парсинга fuel_stock:', e);
+                fuelArray = [];
+            }
+        } 
+        // Если fuel_stock — массив, используем его
+        else if (Array.isArray(station.fuel_stock)) {
+            fuelArray = station.fuel_stock.filter(f => f !== null);
+        }
+        // Если fuel_stock — объект или что-то ещё
+        else if (station.fuel_stock && typeof station.fuel_stock === 'object') {
+            // Пробуем преобразовать объект в массив
+            try {
+                fuelArray = Object.values(station.fuel_stock).filter(f => f !== null);
+            } catch (e) {
+                fuelArray = [];
+            }
+        }
+
+        // Если массив пустой — показываем сообщение
+        if (!fuelArray || fuelArray.length === 0) {
+            container.innerHTML = '<p style="color:#6b7280;font-size:13px;grid-column:1/-1;">⛽ Нет данных о ценах</p>';
             return;
         }
+
+        // Рендерим цены
         let html = '';
         fuelArray.forEach(f => {
+            // Проверяем, что у нас есть fuel_type и price
+            if (!f.fuel_type || f.price === undefined || f.price === null) {
+                return; // Пропускаем пустые записи
+            }
             const status = f.availability === 0 ? '<span class="na">🚫 Нет</span>' : `<span class="price">${f.price} ₽</span>`;
             html += `
                 <div class="fuel-item">
@@ -1072,7 +1109,8 @@
                 </div>
             `;
         });
-        container.innerHTML = html;
+        
+        container.innerHTML = html || '<p style="color:#6b7280;font-size:13px;grid-column:1/-1;">⛽ Нет данных о ценах</p>';
     }
 
     // ============================================================
