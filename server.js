@@ -226,6 +226,7 @@ app.post('/api/admin/add-station', (req, res) => {
         return res.status(400).json({ error: 'Заполните все обязательные поля' });
     }
 
+    // Добавляем АЗС
     db.run(`
         INSERT INTO gas_stations (name, network, address, latitude, longitude)
         VALUES (?, ?, ?, ?, ?)
@@ -237,9 +238,10 @@ app.post('/api/admin/add-station', (req, res) => {
 
         const stationId = this.lastID;
 
+        // Добавляем цены
         if (prices && Array.isArray(prices)) {
             const stmt = db.prepare(`
-                INSERT INTO fuel_stock (station_id, fuel_type, price, availability)
+                INSERT OR REPLACE INTO fuel_stock (station_id, fuel_type, price, availability)
                 VALUES (?, ?, ?, ?)
             `);
             prices.forEach(p => {
@@ -247,6 +249,7 @@ app.post('/api/admin/add-station', (req, res) => {
             });
             stmt.finalize();
 
+            // Сохраняем в Google Таблицу
             prices.forEach(p => {
                 savePriceToGoogle(stationId, p.fuel_type, p.price, p.availability || 1);
             });
