@@ -4,18 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Админ-панель АЗС</title>
-    <script>
-        // ===== ПАРОЛЬ =====
-        (function() {
-            var password = prompt('Введите пароль для доступа к админ-панели:');
-            var correctPassword = 'Azs2026!'; // ← ЗДЕСЬ ТВОЙ ПАРОЛЬ
-
-            if (password === null || password !== correctPassword) {
-                document.body.innerHTML = '<h1 style="text-align:center;margin-top:50px;color:red;">⛔ Доступ запрещён</h1>';
-                throw new Error('Доступ запрещён');
-            }
-        })();
-    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, sans-serif; background: #f5f7fa; padding: 20px; max-width: 800px; margin: 0 auto; }
@@ -37,12 +25,17 @@
         .toast.success { background: #16a34a; }
         .toast.error { background: #dc2626; }
         .link { margin-top: 16px; display: block; color: #0077ff; text-decoration: none; font-size: 14px; }
+        .warning { background: #fef3c7; padding: 12px; border-radius: 6px; margin-bottom: 16px; color: #92400e; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>⛽ Админ-панель</h1>
         <div class="subtitle">Добавление новой АЗС на карту</div>
+        
+        <div class="warning">
+            ⚠️ Все данные сохраняются в базу данных и Google Таблицу. Заправка появится на сайте через 1–2 минуты.
+        </div>
 
         <form id="addForm">
             <label>Название АЗС *</label>
@@ -54,7 +47,6 @@
             <label>Адрес *</label>
             <input type="text" id="stationAddress" placeholder="ул. Ленина, 10, г. Славянск-на-Кубани" required>
 
-            <!-- ===== НОВОЕ ПОЛЕ ДЛЯ КООРДИНАТ ===== -->
             <label>Координаты (широта, долгота) *</label>
             <input type="text" id="stationCoords" placeholder="45.248870, 38.098440" required>
 
