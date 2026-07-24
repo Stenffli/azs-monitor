@@ -8,7 +8,9 @@
         // ===== ПАРОЛЬ =====
         (function() {
             var password = prompt('Введите пароль для доступа к админ-панели:');
-            if (password === null || password !== 'Azs2026!') {
+            var correctPassword = 'Azs2026!'; // ← ЗДЕСЬ ТВОЙ ПАРОЛЬ
+
+            if (password === null || password !== correctPassword) {
                 document.body.innerHTML = '<h1 style="text-align:center;margin-top:50px;color:red;">⛔ Доступ запрещён</h1>';
                 throw new Error('Доступ запрещён');
             }
@@ -52,11 +54,9 @@
             <label>Адрес *</label>
             <input type="text" id="stationAddress" placeholder="ул. Ленина, 10, г. Славянск-на-Кубани" required>
 
-            <label>Широта *</label>
-            <input type="number" id="stationLat" step="0.000001" placeholder="45.248870" required>
-
-            <label>Долгота *</label>
-            <input type="number" id="stationLon" step="0.000001" placeholder="38.098440" required>
+            <!-- ===== НОВОЕ ПОЛЕ ДЛЯ КООРДИНАТ ===== -->
+            <label>Координаты (широта, долгота) *</label>
+            <input type="text" id="stationCoords" placeholder="45.248870, 38.098440" required>
 
             <div style="margin-top:16px;margin-bottom:12px;">
                 <h3 style="font-size:16px;margin-bottom:8px;">⛽ Цены на топливо</h3>
@@ -130,14 +130,22 @@
             const name = document.getElementById('stationName').value.trim();
             const network = document.getElementById('stationNetwork').value.trim();
             const address = document.getElementById('stationAddress').value.trim();
-            const lat = parseFloat(document.getElementById('stationLat').value);
-            const lon = parseFloat(document.getElementById('stationLon').value);
+            const coords = document.getElementById('stationCoords').value.trim();
 
-            if (!name || !address || isNaN(lat) || isNaN(lon)) {
-                showToast('❌ Заполните все обязательные поля (название, адрес, координаты)', 'error');
+            // ===== РАЗДЕЛЯЕМ КООРДИНАТЫ =====
+            const parts = coords.split(',').map(s => s.trim());
+            if (parts.length !== 2) {
+                showToast('❌ Введите координаты в формате: 45.248870, 38.098440', 'error');
+                return;
+            }
+            const lat = parseFloat(parts[0]);
+            const lon = parseFloat(parts[1]);
+            if (isNaN(lat) || isNaN(lon)) {
+                showToast('❌ Координаты должны быть числами', 'error');
                 return;
             }
 
+            // ===== СБОР ЦЕН =====
             const fuelTypes = document.querySelectorAll('.fuel-type');
             const fuelPrices = document.querySelectorAll('.fuel-price');
             const fuelAvails = document.querySelectorAll('.fuel-avail');
